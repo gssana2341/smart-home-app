@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../config/api_keys.dart';
 
 class TtsService extends ChangeNotifier {
   static TtsService? _instance;
@@ -9,7 +10,7 @@ class TtsService extends ChangeNotifier {
   TtsService._();
   
   // OpenAI TTS Configuration
-  static const String _openaiApiKey = 'YOUR_OPENAI_API_KEY_HERE';
+  static const String _openaiApiKey = ApiKeys.openaiApiKey;
   static const String _openaiTtsUrl = 'https://api.openai.com/v1/audio/speech';
   static const String _defaultVoice = 'fable'; // alloy, echo, fable, onyx, nova (onyx = เสียงผู้ชาย)
   

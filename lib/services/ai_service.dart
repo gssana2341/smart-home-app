@@ -3,13 +3,14 @@ import 'package:http/http.dart' as http;
 import '../models/voice_command.dart';
 import '../models/device_status.dart';
 import '../utils/constants.dart';
+import '../config/api_keys.dart';
 
 class AiService {
   static const String _baseUrl = 'https://api.openai.com/v1/chat/completions';
   static const String _model = 'gpt-3.5-turbo';
   
   // ใช้ API key ของ OpenAI (ต้องตั้งค่าเอง)
-  static const String _apiKey = 'YOUR_OPENAI_API_KEY_HERE';
+  static const String _apiKey = ApiKeys.openaiApiKey;
   
   // ใช้ local AI model แทน (ไม่ต้องใช้ API key)
   static const bool _useLocalAI = true; // เปลี่ยนเป็น true เพื่อใช้ Local AI
