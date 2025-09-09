@@ -217,6 +217,15 @@ class _HomeScreenState extends State<HomeScreen>
           });
         }
         print('TTS Service initialized: $initialized');
+        
+        // ฟังสถานะการพูดของ TTS ผ่าน addListener
+        ttsService.addListener(() {
+          if (mounted) {
+            setState(() {
+              _isTtsSpeaking = ttsService.isSpeaking;
+            });
+          }
+        });
       } catch (e) {
         print('TTS service not available: $e');
       }
@@ -250,7 +259,8 @@ class _HomeScreenState extends State<HomeScreen>
           print('Dashboard: Voice command result: "${command.result}"');
           
           // TTS จะถูกจัดการใน VoiceCommandService แล้ว ไม่ต้องทำซ้ำ
-          print('Dashboard: Voice command result: "${command.result}"');
+          print('Dashboard: Voice command result received: "${command.result}"');
+          print('Dashboard: TTS handled by VoiceCommandService, no need to speak again');
         }
       });
 
@@ -1089,6 +1099,18 @@ class _HomeScreenState extends State<HomeScreen>
           ),
         ),
         const SizedBox(width: 8),
+        // TTS Test button
+        if (_isTtsAvailable) ...[
+          IconButton(
+            onPressed: _testTts,
+            icon: Icon(
+              _isTtsSpeaking ? Icons.volume_up : Icons.volume_up,
+              color: _isTtsSpeaking ? AppTheme.warningColor : AppTheme.primaryColor,
+            ),
+            tooltip: 'ทดสอบเสียง',
+          ),
+          const SizedBox(width: 4),
+        ],
         // Auto-refresh toggle
         IconButton(
           onPressed: _toggleAutoRefresh,
@@ -1439,6 +1461,42 @@ class _HomeScreenState extends State<HomeScreen>
           isError: true,
         );
       }
+    }
+  }
+
+  // ฟังก์ชันทดสอบ TTS
+  void _testTts() async {
+    print('Dashboard: TTS Test button pressed');
+    print('Dashboard: TTS Available: $_isTtsAvailable');
+    
+    if (!_isTtsAvailable) {
+      AppHelpers.showSnackBar(
+        context, 
+        '❌ TTS Service ไม่พร้อมใช้งาน',
+        isError: true,
+      );
+      return;
+    }
+
+    try {
+      final ttsService = Provider.of<TtsService>(context, listen: false);
+      print('Dashboard: Calling TTS speak method...');
+      
+      final result = await ttsService.speak('สวัสดีครับ นี่คือการทดสอบระบบเสียง');
+      print('Dashboard: TTS speak result: $result');
+      
+      AppHelpers.showSnackBar(
+        context, 
+        '🔊 กำลังทดสอบเสียง... (Result: $result)',
+        isError: false,
+      );
+    } catch (e) {
+      print('Dashboard: TTS test error: $e');
+      AppHelpers.showSnackBar(
+        context, 
+        '❌ เกิดข้อผิดพลาดในการทดสอบเสียง: $e',
+        isError: true,
+      );
     }
   }
 }

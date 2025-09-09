@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'dart:convert';
+import 'dart:html' as html;
+import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import '../config/api_keys.dart';
 
@@ -202,7 +204,6 @@ class TtsService extends ChangeNotifier {
           'input': text,
           'voice': _defaultVoice,
           'response_format': 'mp3',
-          'speed': 1.0,
         }),
       );
       
@@ -221,12 +222,43 @@ class TtsService extends ChangeNotifier {
         _isSpeaking = true;
         notifyListeners();
         
-        // สำหรับ Web จะใช้ HTML5 Audio API
-        // สำหรับ Mobile จะจำลองการพูด
-        await Future.delayed(const Duration(seconds: 2));
-        
-        _isSpeaking = false;
-        notifyListeners();
+        // เล่นเสียงบน Web ใช้ HTML5 Audio API
+        try {
+          // สร้าง Blob จาก audio data
+          final blob = html.Blob([audioData], 'audio/mpeg');
+          final url = html.Url.createObjectUrl(blob);
+          
+          // สร้าง Audio element
+          final audio = html.AudioElement()
+            ..src = url
+            ..autoplay = true;
+          
+          // ฟังเหตุการณ์เมื่อเล่นเสร็จ
+          audio.onEnded.listen((_) {
+            print('OpenAI TTS: Audio playback completed');
+            _isSpeaking = false;
+            notifyListeners();
+            html.Url.revokeObjectUrl(url); // ล้าง URL
+          });
+          
+          // ฟังเหตุการณ์เมื่อเกิดข้อผิดพลาด
+          audio.onError.listen((event) {
+            print('OpenAI TTS: Audio playback error: $event');
+            _isSpeaking = false;
+            notifyListeners();
+            html.Url.revokeObjectUrl(url);
+          });
+          
+          // เริ่มเล่นเสียง
+          await audio.play();
+          print('OpenAI TTS: Audio playback started');
+          
+        } catch (audioError) {
+          print('OpenAI TTS: Audio playback error: $audioError');
+          _isSpeaking = false;
+          notifyListeners();
+          return false;
+        }
         
         return true;
       } else {

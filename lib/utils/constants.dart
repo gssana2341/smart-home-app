@@ -1,6 +1,6 @@
 class ApiConstants {
   // Base URL
-  static const String baseUrl = 'http://localhost:8080';
+  static const String baseUrl = 'http://34.87.180.232:8080';
   
   // API Endpoints
   static const String statusEndpoint = '/api/status';

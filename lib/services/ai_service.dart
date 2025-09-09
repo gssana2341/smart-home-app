@@ -7,13 +7,13 @@ import '../config/api_keys.dart';
 
 class AiService {
   static const String _baseUrl = 'https://api.openai.com/v1/chat/completions';
-  static const String _model = 'gpt-3.5-turbo';
+  static const String _model = 'gpt-4o-mini';
   
   // ใช้ API key ของ OpenAI (ต้องตั้งค่าเอง)
   static const String _apiKey = ApiKeys.openaiApiKey;
   
   // ใช้ local AI model แทน (ไม่ต้องใช้ API key)
-  static const bool _useLocalAI = true; // เปลี่ยนเป็น true เพื่อใช้ Local AI
+  static const bool _useLocalAI = false; // เปลี่ยนเป็น false เพื่อใช้ GPT-4o mini
 
   /// ประมวลผลคำสั่งเสียงและแปลงเป็นคำสั่งควบคุม
   Future<VoiceCommand> processVoiceCommand(
@@ -39,7 +39,7 @@ class AiService {
   }
 
   /// ใช้ Local AI Logic แทน OpenAI API
-  VoiceCommand _processWithLocalAI(String voiceInput, DeviceStatus? deviceStatus) {
+  Future<VoiceCommand> _processWithLocalAI(String voiceInput, DeviceStatus? deviceStatus) async {
     final input = voiceInput.toLowerCase().trim();
     final timestamp = DateTime.now();
     final id = timestamp.millisecondsSinceEpoch.toString();
@@ -234,10 +234,13 @@ class AiService {
         else if (temp < 30) status = 'ปกติ';
         else status = 'ร้อน';
         
+        // แปลงตัวเลขเป็นไทย
+        final tempThai = _convertNumberToThai(temp.toStringAsFixed(1));
+        
         return VoiceCommand(
           id: id,
           command: voiceInput,
-          result: 'อุณหภูมิปัจจุบัน: ${temp.toStringAsFixed(1)}°C ($status)',
+          result: 'อุณหภูมิปัจจุบัน $tempThai องศาเซลเซียส $status ครับ',
           timestamp: timestamp,
           isSuccess: true,
         );
@@ -245,7 +248,7 @@ class AiService {
         return VoiceCommand(
           id: id,
           command: voiceInput,
-          result: 'ไม่สามารถดึงข้อมูลอุณหภูมิได้',
+          result: 'ไม่สามารถดึงข้อมูลอุณหภูมิได้ครับ',
           timestamp: timestamp,
           isSuccess: false,
           errorMessage: 'อุปกรณ์ออฟไลน์',
@@ -262,10 +265,13 @@ class AiService {
         else if (humidity < 70) status = 'ปกติ';
         else status = 'ชื้น';
         
+        // แปลงตัวเลขเป็นไทย
+        final humidityThai = _convertNumberToThai(humidity.toStringAsFixed(1));
+        
         return VoiceCommand(
           id: id,
           command: voiceInput,
-          result: 'ความชื้นปัจจุบัน: ${humidity.toStringAsFixed(1)}% ($status)',
+          result: 'ความชื้นปัจจุบัน $humidityThai เปอร์เซ็นต์ $status ครับ',
           timestamp: timestamp,
           isSuccess: true,
         );
@@ -273,7 +279,7 @@ class AiService {
         return VoiceCommand(
           id: id,
           command: voiceInput,
-          result: 'ไม่สามารถดึงข้อมูลความชื้นได้',
+          result: 'ไม่สามารถดึงข้อมูลความชื้นได้ครับ',
           timestamp: timestamp,
           isSuccess: false,
           errorMessage: 'อุปกรณ์ออฟไลน์',
@@ -300,15 +306,144 @@ class AiService {
       );
     }
 
-    // คำสั่งที่ไม่รู้จัก
-    return VoiceCommand(
-      id: id,
-      command: voiceInput,
-      result: 'ขออภัย ไม่เข้าใจคำสั่ง "$voiceInput" ลองพูด "ช่วยเหลือ" เพื่อดูคำสั่งที่ใช้ได้',
-      timestamp: timestamp,
-      isSuccess: false,
-      errorMessage: 'คำสั่งไม่รู้จัก',
-    );
+    // คำสั่งที่ไม่รู้จัก - ใช้ GPT-4o mini ตอบคำถามทั่วไป
+    return await _processGeneralQuestion(voiceInput, deviceStatus);
+  }
+
+  /// ประมวลผลคำถามทั่วไปด้วย GPT-4o mini
+  Future<VoiceCommand> _processGeneralQuestion(String voiceInput, DeviceStatus? deviceStatus) async {
+    try {
+      final headers = {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $_apiKey',
+      };
+
+      final context = deviceStatus != null ? '''
+สถานะปัจจุบันของระบบ Smart Home:
+- ไฟ: ${deviceStatus.relay1 ? 'เปิด' : 'ปิด'}
+- พัดลม: ${deviceStatus.relay2 ? 'เปิด' : 'ปิด'}
+- แอร์: ${deviceStatus.relay3 ? 'เปิด' : 'ปิด'}
+- ปั๊มน้ำ: ${deviceStatus.relay4 ? 'เปิด' : 'ปิด'}
+- ฮีทเตอร์: ${deviceStatus.relay5 ? 'เปิด' : 'ปิด'}
+- อุปกรณ์เพิ่มเติม: ${deviceStatus.relay6 ? 'เปิด' : 'ปิด'}
+- อุณหภูมิ: ${deviceStatus.temperature}°C
+- ความชื้น: ${deviceStatus.humidity}%
+- ก๊าซ: ${deviceStatus.gasLevel} ppm
+- การเชื่อมต่อ: ${deviceStatus.online ? 'เชื่อมต่อ' : 'ไม่เชื่อมต่อ'}
+''' : '';
+
+      final prompt = '''
+คุณเป็น AI Assistant สำหรับระบบ Smart Home ที่สามารถตอบคำถามทั่วไปได้
+
+$context
+
+คำถามของผู้ใช้: "$voiceInput"
+
+**สำคัญ: ตอบแบบผู้ชายเสมอ ใช้ "ครับ" แทน "ค่ะ" และพูดช้าๆ ชัดๆ**
+
+คำสั่งที่สามารถควบคุมได้:
+- เปิด/ปิดไฟ: "เปิดไฟ" หรือ "ปิดไฟ"
+- เปิด/ปิดพัดลม: "เปิดพัดลม" หรือ "ปิดพัดลม"
+- เปิด/ปิดแอร์: "เปิดแอร์" หรือ "ปิดแอร์"
+- เปิด/ปิดปั๊มน้ำ: "เปิดปั๊มน้ำ" หรือ "ปิดปั๊มน้ำ"
+- เปิด/ปิดฮีทเตอร์: "เปิดฮีทเตอร์" หรือ "ปิดฮีทเตอร์"
+- เปิด/ปิดอุปกรณ์เพิ่มเติม: "เปิดอุปกรณ์เพิ่มเติม" หรือ "ปิดอุปกรณ์เพิ่มเติม"
+- เปิด/ปิดทั้งหมด: "เปิดทั้งหมด" หรือ "ปิดทั้งหมด"
+- ดูสถานะ: "สถานะอุปกรณ์" หรือ "อุณหภูมิเท่าไหร่" หรือ "ความชื้นเท่าไหร่"
+
+**ตอบแบบผู้ชายเสมอ:**
+- ✅ "ครับ" ✅ "ครับครับ" ✅ "ได้ครับ"
+- ❌ ไม่ใช้ "ค่ะ" ❌ ไม่ใช้ "ค่ะค่ะ" ❌ ไม่ใช้ "ได้ค่ะ"
+
+**การตอบอุณหภูมิ:**
+- ต้องตอบชัดเจน เช่น "31 องศาเซลเซียส" (ไม่ใช่ "31°C" หรือ "31C")
+- ต้องมีคำว่า "องศาเซลเซียส" เสมอ
+- ตัวอย่าง: "อุณหภูมิปัจจุบัน 31 องศาเซลเซียสครับ"
+
+ตอบกลับสั้นๆ ชัดเจน และเป็นมิตร:
+''';
+
+      final body = {
+        'model': _model,
+        'messages': [
+          {
+            'role': 'system',
+            'content': '''คุณเป็น AI Assistant สำหรับระบบ Smart Home ที่สามารถตอบคำถามทั่วไปได้
+
+**สำคัญ: ตอบแบบผู้ชายเสมอ ใช้ "ครับ" แทน "ค่ะ"**
+
+คำสั่งที่รองรับ:
+- เปิด/ปิดไฟ: ใช้คำสั่ง "เปิดไฟ" หรือ "ปิดไฟ"
+- เปิด/ปิดพัดลม: ใช้คำสั่ง "เปิดพัดลม" หรือ "ปิดพัดลม"
+- เปิด/ปิดแอร์: ใช้คำสั่ง "เปิดแอร์" หรือ "ปิดแอร์"
+- เปิด/ปิดปั๊มน้ำ: ใช้คำสั่ง "เปิดปั๊มน้ำ" หรือ "ปิดปั๊มน้ำ"
+- เปิด/ปิดฮีทเตอร์: ใช้คำสั่ง "เปิดฮีทเตอร์" หรือ "ปิดฮีทเตอร์"
+- เปิด/ปิดอุปกรณ์เพิ่มเติม: ใช้คำสั่ง "เปิดอุปกรณ์เพิ่มเติม" หรือ "ปิดอุปกรณ์เพิ่มเติม"
+- เปิด/ปิดทั้งหมด: ใช้คำสั่ง "เปิดทั้งหมด" หรือ "ปิดทั้งหมด"
+- ดูสถานะ: ใช้คำสั่ง "สถานะอุปกรณ์" หรือ "อุณหภูมิเท่าไหร่" หรือ "ความชื้นเท่าไหร่"
+
+**ตอบแบบผู้ชายเสมอ:**
+- ✅ "ครับ" ✅ "ครับครับ" ✅ "ได้ครับ"
+- ❌ ไม่ใช้ "ค่ะ" ❌ ไม่ใช้ "ค่ะค่ะ" ❌ ไม่ใช้ "ได้ค่ะ"
+
+**การตอบอุณหภูมิ:**
+- ต้องตอบชัดเจน เช่น "31 องศาเซลเซียส" (ไม่ใช่ "31°C" หรือ "31C")
+- ต้องมีคำว่า "องศาเซลเซียส" เสมอ
+- ตัวอย่าง: "อุณหภูมิปัจจุบัน 31 องศาเซลเซียสครับ"
+
+ตัวอย่างการตอบ:
+- "เปิดไฟแล้วครับ" (ไม่ใช่ "เปิดไฟแล้วค่ะ")
+- "อุณหภูมิ 25 องศาเซลเซียสครับ" (ไม่ใช่ "25°C" หรือ "25C")
+- "พัดลมปิดแล้วครับ" (ไม่ใช่ "พัดลมปิดแล้วค่ะ")
+- "สวัสดีครับ มีอะไรให้ช่วยไหมครับ" (ไม่ใช่ "สวัสดีค่ะ")
+- "วันนี้อากาศดีครับ" (ไม่ใช่ "วันนี้อากาศดีค่ะ")''',
+          },
+          {
+            'role': 'user',
+            'content': prompt,
+          },
+        ],
+        'max_tokens': 300,
+        'temperature': 0.7,
+      };
+
+      final response = await http.post(
+        Uri.parse(_baseUrl),
+        headers: headers,
+        body: jsonEncode(body),
+      ).timeout(
+        const Duration(seconds: 10), // เพิ่ม timeout 10 วินาที
+        onTimeout: () {
+          throw Exception('API timeout - การเชื่อมต่อช้าเกินไป');
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final content = data['choices'][0]['message']['content'];
+        
+        return VoiceCommand(
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          command: voiceInput,
+          result: content,
+          timestamp: DateTime.now(),
+          isSuccess: true,
+        );
+      } else {
+        throw Exception('OpenAI API Error: ${response.statusCode}');
+      }
+    } catch (e) {
+      // Fallback response สำหรับกรณีที่ API ช้าหรือไม่สามารถเชื่อมต่อได้
+      String fallbackResponse = _getFallbackResponse(voiceInput);
+      
+      return VoiceCommand(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        command: voiceInput,
+        result: fallbackResponse,
+        timestamp: DateTime.now(),
+        isSuccess: true, // เปลี่ยนเป็น true เพื่อให้ TTS พูด fallback response
+      );
+    }
   }
 
   /// ใช้ OpenAI API (ต้องมี API key)
@@ -455,5 +590,34 @@ $context
            input.contains('สถานะ') ||
            input.contains('อุณหภูมิ') ||
            input.contains('ความชื้น');
+  }
+
+  /// แปลงตัวเลขเป็นภาษาไทย
+  String _convertNumberToThai(String number) {
+    final Map<String, String> numberMap = {
+      '0': 'ศูนย์',
+      '1': 'หนึ่ง',
+      '2': 'สอง',
+      '3': 'สาม',
+      '4': 'สี่',
+      '5': 'ห้า',
+      '6': 'หก',
+      '7': 'เจ็ด',
+      '8': 'แปด',
+      '9': 'เก้า',
+      '.': 'จุด',
+    };
+
+    String result = '';
+    for (int i = 0; i < number.length; i++) {
+      final char = number[i];
+      if (numberMap.containsKey(char)) {
+        result += numberMap[char]!;
+      } else {
+        result += char;
+      }
+    }
+    
+    return result;
   }
 }

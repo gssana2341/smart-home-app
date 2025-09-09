@@ -592,19 +592,19 @@ class VoiceCommandService extends ChangeNotifier {
         if (_aiService.isControlCommand(command.command)) {
           // คำสั่งควบคุม
           if (command.command.toLowerCase().contains('เปิด')) {
-            responseText = 'ได้ครับ เปิดอุปกรณ์ให้แล้ว';
+            responseText = 'ได้ครับ เปิดอุปกรณ์ให้แล้วครับ';
           } else if (command.command.toLowerCase().contains('ปิด')) {
-            responseText = 'ได้ครับ ปิดอุปกรณ์ให้แล้ว';
+            responseText = 'ได้ครับ ปิดอุปกรณ์ให้แล้วครับ';
           } else {
             responseText = 'ดำเนินการตามคำสั่งแล้วครับ';
           }
         } else {
-          // คำสั่งทั่วไป
+          // คำสั่งทั่วไป - ใช้ผลลัพธ์จาก AI ที่ปรับปรุงแล้ว
           responseText = command.result;
         }
       } else {
         // ข้อผิดพลาด
-        responseText = 'ขออภัย ไม่สามารถดำเนินการได้: ${command.errorMessage ?? 'เกิดข้อผิดพลาด'}';
+        responseText = 'ขออภัยครับ ไม่สามารถดำเนินการได้: ${command.errorMessage ?? 'เกิดข้อผิดพลาด'}';
       }
       
       if (responseText.isNotEmpty) {
