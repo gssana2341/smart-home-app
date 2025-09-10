@@ -947,18 +947,18 @@ class _HomeScreenState extends State<HomeScreen>
                     
                     const SizedBox(height: 20),
                     
-                    // Connection status
-                    _buildConnectionStatus(theme),
+                    // Sensor overview
+                    _buildSensorOverview(theme),
                     
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 24),
                     
                     // Device controls
                     _buildDeviceControls(theme),
                     
                     const SizedBox(height: 24),
                     
-                    // Sensor overview
-                    _buildSensorOverview(theme),
+                    // Connection status
+                    _buildConnectionStatus(theme),
                     
                     // Bottom padding for safe area
                     const SizedBox(height: 100),

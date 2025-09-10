@@ -7,7 +7,6 @@ import '../models/automation_action.dart';
 import '../utils/theme.dart';
 import '../utils/helpers.dart';
 import '../widgets/automation_rule_card.dart';
-import 'create_automation_rule_screen.dart';
 
 class AutomationScreen extends StatefulWidget {
   const AutomationScreen({super.key});
