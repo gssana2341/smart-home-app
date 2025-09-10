@@ -7,10 +7,12 @@ import 'services/mqtt_service.dart';
 import 'services/storage_service.dart';
 import 'services/voice_command_service.dart';
 import 'services/tts_service.dart';
+import 'services/automation_service.dart';
 import 'screens/splash_screen.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/chat_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/automation_screen.dart';
 import 'utils/theme.dart';
 import 'utils/constants.dart';
 
@@ -90,6 +92,10 @@ class SmartHomeApp extends StatelessWidget {
            create: (_) => TtsService.instance,
            lazy: false,
          ),
+         ChangeNotifierProvider(
+           create: (_) => AutomationService(),
+           lazy: false,
+         ),
       ],
       child: Consumer<StorageService>(
         builder: (context, storage, child) {
@@ -115,6 +121,7 @@ class SmartHomeApp extends StatelessWidget {
               '/dashboard': (context) => HomeScreen(),
               '/chat': (context) => LogScreen(),
               '/settings': (context) => SettingsScreen(),
+              '/automation': (context) => AutomationScreen(),
             },
             onGenerateRoute: (settings) {
               // Handle dynamic routes if needed
@@ -160,6 +167,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
   final List<Widget> _screens = const [
     HomeScreen(),
     LogScreen(),
+    AutomationScreen(),
     SettingsScreen(),
   ];
 
@@ -332,11 +340,16 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
               activeIcon: Icon(Icons.home),
               label: 'Home',
             ),
-                         BottomNavigationBarItem(
-               icon: Icon(Icons.assignment),
-               activeIcon: Icon(Icons.assignment),
-               label: 'Log',
-             ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.assignment),
+              activeIcon: Icon(Icons.assignment),
+              label: 'Log',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.smart_toy),
+              activeIcon: Icon(Icons.smart_toy),
+              label: 'ออโตเมชั่น',
+            ),
             BottomNavigationBarItem(
               icon: Icon(Icons.settings),
               activeIcon: Icon(Icons.settings),

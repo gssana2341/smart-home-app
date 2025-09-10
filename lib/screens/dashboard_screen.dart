@@ -5,11 +5,15 @@ import 'package:provider/provider.dart';
 import '../models/device_status.dart';
 import '../models/sensor_data.dart';
 import '../models/voice_command.dart';
+import '../models/automation_rule.dart';
+import '../models/automation_condition.dart';
+import '../models/automation_action.dart';
 import '../services/api_service.dart';
 import '../services/mqtt_service.dart';
 import '../services/storage_service.dart';
 import '../services/voice_command_service.dart';
 import '../services/tts_service.dart';
+import '../services/automation_service.dart';
 import '../widgets/device_card.dart';
 import '../widgets/sensor_card.dart';
 import '../widgets/control_button.dart';
@@ -77,6 +81,10 @@ class _HomeScreenState extends State<HomeScreen>
     // Load cached data first
     await _loadCachedData();
     
+    // Start automation monitoring
+    final automationService = Provider.of<AutomationService>(context, listen: false);
+    automationService.startMonitoring();
+    
     // ไม่ต้องเรียก _refreshData เพราะ real-time จะอัพเดทเอง
     // await _refreshData();
     
@@ -130,6 +138,9 @@ class _HomeScreenState extends State<HomeScreen>
                 _lastDeviceStatusUpdate = DateTime.now();
                 });
                 _saveDeviceStatus(status);
+                
+                // Update automation with real-time data
+                _updateAutomationWithDashboardData();
               }
             }
           } catch (e) {
@@ -155,6 +166,9 @@ class _HomeScreenState extends State<HomeScreen>
                 for (final sensor in sensors) {
                   await _saveSensorData(sensor);
                 }
+                
+                // Update automation with real-time sensor data
+                _updateAutomationWithDashboardData();
               }
             }
           } catch (e) {
@@ -168,6 +182,7 @@ class _HomeScreenState extends State<HomeScreen>
     try {
       // MQTT listeners
       final mqttService = Provider.of<MqttService>(context, listen: false);
+      final automationService = Provider.of<AutomationService>(context, listen: false);
       
       mqttService.deviceStatusStream.listen((status) {
         if (mounted) {
@@ -176,6 +191,13 @@ class _HomeScreenState extends State<HomeScreen>
             _lastUpdateTime = DateTime.now();
           });
           _saveDeviceStatus(status);
+          
+          // Update automation service with new data
+          final sensorData = _sensorHistory.isNotEmpty ? _sensorHistory.last : null;
+          automationService.updateSensorData(status, sensorData, context: context);
+          
+          // Also update automation with current dashboard data
+          _updateAutomationWithDashboardData();
         }
       }, onError: (error) {
         print('Device status stream error: $error');
@@ -191,6 +213,14 @@ class _HomeScreenState extends State<HomeScreen>
             _lastUpdateTime = DateTime.now();
           });
           _saveSensorData(sensorData);
+          
+          // Update automation service with new sensor data
+          if (_deviceStatus != null) {
+            automationService.updateSensorData(_deviceStatus!, sensorData, context: context);
+          }
+          
+          // Also update automation with current dashboard data
+          _updateAutomationWithDashboardData();
         }
       }, onError: (error) {
         print('Sensor data stream error: $error');
@@ -321,6 +351,9 @@ class _HomeScreenState extends State<HomeScreen>
         });
         await _saveDeviceStatus(status);
         print('Dashboard: Manual refresh - Device status updated');
+        
+        // Update automation with refreshed data
+        _updateAutomationWithDashboardData();
       }
       
       // Fetch sensor history
@@ -333,6 +366,9 @@ class _HomeScreenState extends State<HomeScreen>
           await _saveSensorData(sensor);
         }
         print('Dashboard: Manual refresh - Sensor data updated');
+        
+        // Update automation with refreshed sensor data
+        _updateAutomationWithDashboardData();
       }
       
       // ไม่แสดงข้อความอัพเดทสำเร็จเพื่อหลีกเลี่ยงการแจ้งเตือนซ้ำ
@@ -374,6 +410,45 @@ class _HomeScreenState extends State<HomeScreen>
     // ส่ง log ผ่าน VoiceCommandService เพื่อให้หน้า Log รับได้
     final voiceCommandService = Provider.of<VoiceCommandService>(context, listen: false);
     voiceCommandService.addLogMessage(title, message);
+  }
+
+  // ฟังก์ชันอัปเดต Automation ด้วยข้อมูลจาก Dashboard
+  void _updateAutomationWithDashboardData() {
+    if (_deviceStatus == null) return;
+    
+    try {
+      final automationService = Provider.of<AutomationService>(context, listen: false);
+      
+      // ใช้ข้อมูลจาก Dashboard (ภาพรวม Sensors)
+      final dashboardSensorData = _sensorHistory.isNotEmpty 
+          ? _sensorHistory.last 
+          : SensorData(
+              temperature: _deviceStatus!.temperature,
+              humidity: _deviceStatus!.humidity,
+              gasLevel: _deviceStatus!.gasLevel,
+              timestamp: DateTime.now(),
+            );
+      
+      // สร้าง DeviceStatus ที่มีข้อมูลล่าสุดจาก Dashboard
+      final dashboardDeviceStatus = _deviceStatus!.copyWith(
+        temperature: dashboardSensorData.temperature,
+        humidity: dashboardSensorData.humidity,
+        gasLevel: dashboardSensorData.gasLevel,
+        lastSeen: dashboardSensorData.timestamp,
+      );
+      
+      // อัปเดต Automation Service ด้วยข้อมูลจาก Dashboard
+      automationService.updateSensorData(
+        dashboardDeviceStatus, 
+        dashboardSensorData, 
+        context: context
+      );
+      
+      print('Dashboard: Updated automation with dashboard sensor data - Temp: ${dashboardSensorData.temperature}°C, Humidity: ${dashboardSensorData.humidity}%, Gas: ${dashboardSensorData.gasLevel}');
+      
+    } catch (e) {
+      print('Dashboard: Error updating automation with dashboard data: $e');
+    }
   }
 
   // ฟังก์ชันควบคุมไฟผ่าน API
@@ -1138,11 +1213,12 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Widget _buildConnectionStatus(ThemeData theme) {
-    return Consumer2<MqttService, ApiService>(
-      builder: (context, mqttService, apiService, child) {
+    return Consumer3<MqttService, ApiService, AutomationService>(
+      builder: (context, mqttService, apiService, automationService, child) {
         final isDeviceOnline = _deviceStatus?.online ?? false;
         final isMqttConnected = mqttService.isConnected;
         final isApiConnected = apiService.isConnected;
+        final isAutomationMonitoring = automationService.isMonitoring;
         final lastSeen = _deviceStatus?.lastSeen;
 
         // ดูสถานะการเชื่อมต่อโดยรวม
@@ -1233,6 +1309,12 @@ class _HomeScreenState extends State<HomeScreen>
                     'AUTO',
                     _autoRefreshEnabled,
                     Icons.refresh,
+                    theme,
+                  ),
+                  _buildServiceStatus(
+                    'AUTOMATION',
+                    isAutomationMonitoring,
+                    Icons.smart_toy,
                     theme,
                   ),
                 ],
@@ -1330,6 +1412,7 @@ class _HomeScreenState extends State<HomeScreen>
               child: LightDeviceCard(
                 deviceStatus: _deviceStatus!,
                 onToggle: _controlLight,
+                onAutomation: () => _showQuickAutomationDialog('light', 'ไฟ'),
               ),
             ),
             const SizedBox(width: 12),
@@ -1337,6 +1420,7 @@ class _HomeScreenState extends State<HomeScreen>
               child: FanDeviceCard(
                 deviceStatus: _deviceStatus!,
                 onToggle: _controlFan,
+                onAutomation: () => _showQuickAutomationDialog('fan', 'พัดลม'),
               ),
             ),
           ],
@@ -1349,6 +1433,7 @@ class _HomeScreenState extends State<HomeScreen>
               child: AirConditionerDeviceCard(
                 deviceStatus: _deviceStatus!,
                 onToggle: _controlAirConditioner,
+                onAutomation: () => _showQuickAutomationDialog('air_conditioner', 'แอร์'),
               ),
             ),
             const SizedBox(width: 12),
@@ -1356,6 +1441,7 @@ class _HomeScreenState extends State<HomeScreen>
               child: WaterPumpDeviceCard(
                 deviceStatus: _deviceStatus!,
                 onToggle: _controlWaterPump,
+                onAutomation: () => _showQuickAutomationDialog('water_pump', 'ปั๊มน้ำ'),
               ),
             ),
           ],
@@ -1368,6 +1454,7 @@ class _HomeScreenState extends State<HomeScreen>
               child: HeaterDeviceCard(
                 deviceStatus: _deviceStatus!,
                 onToggle: _controlHeater,
+                onAutomation: () => _showQuickAutomationDialog('heater', 'ฮีทเตอร์'),
               ),
             ),
             const SizedBox(width: 12),
@@ -1375,6 +1462,7 @@ class _HomeScreenState extends State<HomeScreen>
               child: ExtraDeviceCard(
                 deviceStatus: _deviceStatus!,
                 onToggle: _controlExtraDevice,
+                onAutomation: () => _showQuickAutomationDialog('extra_device', 'อุปกรณ์เพิ่มเติม'),
               ),
             ),
           ],
@@ -1464,6 +1552,20 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
+  // ฟังก์ชันแสดง Quick Automation Dialog
+  void _showQuickAutomationDialog(String deviceType, String deviceName) {
+    showDialog(
+      context: context,
+      builder: (context) => _QuickAutomationDialog(
+        deviceType: deviceType,
+        deviceName: deviceName,
+        currentTemperature: _deviceStatus?.temperature ?? 0.0,
+        currentHumidity: _deviceStatus?.humidity ?? 0.0,
+        currentGasLevel: _deviceStatus?.gasLevel ?? 0,
+      ),
+    );
+  }
+
   // ฟังก์ชันทดสอบ TTS
   void _testTts() async {
     print('Dashboard: TTS Test button pressed');
@@ -1497,6 +1599,342 @@ class _HomeScreenState extends State<HomeScreen>
         '❌ เกิดข้อผิดพลาดในการทดสอบเสียง: $e',
         isError: true,
       );
+    }
+  }
+}
+
+// Quick Automation Dialog Widget
+class _QuickAutomationDialog extends StatefulWidget {
+  final String deviceType;
+  final String deviceName;
+  final double currentTemperature;
+  final double currentHumidity;
+  final int currentGasLevel;
+
+  const _QuickAutomationDialog({
+    required this.deviceType,
+    required this.deviceName,
+    required this.currentTemperature,
+    required this.currentHumidity,
+    required this.currentGasLevel,
+  });
+
+  @override
+  State<_QuickAutomationDialog> createState() => _QuickAutomationDialogState();
+}
+
+class _QuickAutomationDialogState extends State<_QuickAutomationDialog> {
+  String _conditionType = 'temperature';
+  String _operator = '>';
+  double _value = 30.0;
+  String _action = 'turn_on';
+  bool _isEnabled = true;
+
+  @override
+  void initState() {
+    super.initState();
+    // Set default values based on device type
+    _setDefaultValues();
+  }
+
+  void _setDefaultValues() {
+    switch (widget.deviceType) {
+      case 'light':
+        _conditionType = 'time';
+        _operator = 'after';
+        _value = 18.0; // 18:00
+        break;
+      case 'fan':
+        _conditionType = 'temperature';
+        _operator = '>';
+        _value = 28.0;
+        break;
+      case 'air_conditioner':
+        _conditionType = 'temperature';
+        _operator = '>';
+        _value = 30.0;
+        break;
+      case 'water_pump':
+        _conditionType = 'humidity';
+        _operator = '>';
+        _value = 30.0;
+        break;
+      case 'heater':
+        _conditionType = 'temperature';
+        _operator = '<';
+        _value = 20.0;
+        break;
+      case 'extra_device':
+        _conditionType = 'gas';
+        _operator = '>';
+        _value = 500.0;
+        break;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return AlertDialog(
+      title: Row(
+        children: [
+          Icon(Icons.smart_toy, color: AppTheme.primaryColor),
+          const SizedBox(width: 8),
+          Text('ตั้งค่าอัตโนมัติ ${widget.deviceName}'),
+        ],
+      ),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Current values
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppTheme.primaryColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'ค่าปัจจุบัน',
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text('อุณหภูมิ: ${widget.currentTemperature.toStringAsFixed(1)}°C'),
+                  Text('ความชื้น: ${widget.currentHumidity.toStringAsFixed(1)}%'),
+                  Text('ก๊าซ: ${widget.currentGasLevel}'),
+                ],
+              ),
+            ),
+            
+            const SizedBox(height: 16),
+            
+            // Condition type
+            Text(
+              'เงื่อนไข',
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<String>(
+              value: _conditionType,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+              items: const [
+                DropdownMenuItem(value: 'temperature', child: Text('อุณหภูมิ')),
+                DropdownMenuItem(value: 'humidity', child: Text('ความชื้น')),
+                DropdownMenuItem(value: 'gas', child: Text('ก๊าซ')),
+                DropdownMenuItem(value: 'time', child: Text('เวลา')),
+              ],
+              onChanged: (value) {
+                setState(() {
+                  _conditionType = value ?? 'temperature';
+                  // Reset operator and value when condition type changes
+                  if (_conditionType == 'time') {
+                    _operator = 'after';
+                    _value = 18.0; // 18:00
+                  } else if (_conditionType == 'temperature') {
+                    _operator = '>';
+                    _value = 25.0;
+                  } else if (_conditionType == 'humidity') {
+                    _operator = '>';
+                    _value = 50.0;
+                  } else if (_conditionType == 'gas') {
+                    _operator = '>';
+                    _value = 300.0;
+                  }
+                });
+              },
+            ),
+            
+            const SizedBox(height: 12),
+            
+            // Operator and value
+            Row(
+              children: [
+                Expanded(
+                  child: DropdownButtonFormField<String>(
+                    value: _operator,
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                    items: _getOperatorItems(),
+                    onChanged: (value) {
+                      setState(() {
+                        _operator = value ?? '>';
+                      });
+                    },
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextFormField(
+                    key: ValueKey('${_conditionType}_${_value}'), // Force rebuild when condition changes
+                    initialValue: _value.toString(),
+                    decoration: InputDecoration(
+                      border: const OutlineInputBorder(),
+                      isDense: true,
+                      suffixText: _getUnitText(),
+                    ),
+                    keyboardType: TextInputType.number,
+                    onChanged: (value) {
+                      _value = double.tryParse(value) ?? 0.0;
+                    },
+                  ),
+                ),
+              ],
+            ),
+            
+            const SizedBox(height: 16),
+            
+            // Action
+            Text(
+              'การกระทำ',
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<String>(
+              value: _action,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+              items: const [
+                DropdownMenuItem(value: 'turn_on', child: Text('เปิด')),
+                DropdownMenuItem(value: 'turn_off', child: Text('ปิด')),
+              ],
+              onChanged: (value) {
+                setState(() {
+                  _action = value ?? 'turn_on';
+                });
+              },
+            ),
+            
+            const SizedBox(height: 16),
+            
+            // Enable switch
+            SwitchListTile(
+              title: const Text('เปิดใช้งาน'),
+              value: _isEnabled,
+              onChanged: (value) {
+                setState(() {
+                  _isEnabled = value;
+                });
+              },
+              activeColor: AppTheme.primaryColor,
+              contentPadding: EdgeInsets.zero,
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('ยกเลิก'),
+        ),
+        ElevatedButton(
+          onPressed: _createAutomationRule,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppTheme.primaryColor,
+            foregroundColor: Colors.white,
+          ),
+          child: const Text('สร้างกฎ'),
+        ),
+      ],
+    );
+  }
+
+  List<DropdownMenuItem<String>> _getOperatorItems() {
+    if (_conditionType == 'time') {
+      return const [
+        DropdownMenuItem(value: 'after', child: Text('หลัง')),
+        DropdownMenuItem(value: 'before', child: Text('ก่อน')),
+      ];
+    }
+    
+    return const [
+      DropdownMenuItem(value: '>', child: Text('มากกว่า')),
+      DropdownMenuItem(value: '<', child: Text('น้อยกว่า')),
+      DropdownMenuItem(value: '>=', child: Text('มากกว่าหรือเท่ากับ')),
+      DropdownMenuItem(value: '<=', child: Text('น้อยกว่าหรือเท่ากับ')),
+    ];
+  }
+
+  String _getUnitText() {
+    switch (_conditionType) {
+      case 'temperature':
+        return '°C';
+      case 'humidity':
+        return '%';
+      case 'gas':
+        return '';
+      case 'time':
+        return ':00';
+      default:
+        return '';
+    }
+  }
+
+  void _createAutomationRule() async {
+    try {
+      final automationService = Provider.of<AutomationService>(context, listen: false);
+      
+      // Create condition
+      final condition = AutomationCondition(
+        sensorType: _conditionType,
+        operator: _operator,
+        value: _value,
+        timeCondition: _conditionType == 'time' ? _operator : null,
+        description: _conditionType == 'time' ? '${_value.toInt()}:00' : null,
+      );
+      
+      // Create action
+      final action = AutomationAction(
+        deviceType: widget.deviceType,
+        action: _action,
+      );
+      
+      // Create rule
+      final rule = AutomationRule(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        name: '${widget.deviceName} - ${condition.getDisplayText()}',
+        description: 'กฎอัตโนมัติสำหรับ${widget.deviceName}',
+        conditions: [condition],
+        actions: [action],
+        isEnabled: _isEnabled,
+        createdAt: DateTime.now(),
+        category: _conditionType,
+      );
+      
+      await automationService.addRule(rule);
+      
+      if (mounted) {
+        Navigator.pop(context);
+        AppHelpers.showSnackBar(
+          context,
+          'สร้างกฎอัตโนมัติสำหรับ${widget.deviceName} สำเร็จ',
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        AppHelpers.showSnackBar(
+          context,
+          'เกิดข้อผิดพลาด: $e',
+          isError: true,
+        );
+      }
     }
   }
 }

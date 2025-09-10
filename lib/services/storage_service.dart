@@ -7,6 +7,7 @@ import 'package:path/path.dart';
 import '../models/chat_message.dart';
 import '../models/sensor_data.dart';
 import '../models/device_status.dart';
+import '../models/automation_rule.dart';
 import '../utils/constants.dart';
 
 class StorageService extends ChangeNotifier {
@@ -474,6 +475,68 @@ class StorageService extends ChangeNotifier {
       await _database!.delete(StorageConstants.chatMessagesTable);
       await _database!.delete(StorageConstants.sensorDataTable);
       await _database!.delete(StorageConstants.deviceLogsTable);
+    }
+  }
+
+  // Automation Rules Storage
+  Future<List<Map<String, dynamic>>> getAutomationRules() async {
+    try {
+      if (_prefs == null) return [];
+      
+      final rulesJson = _prefs!.getString('automation_rules');
+      if (rulesJson == null) return [];
+      
+      final List<dynamic> rulesList = jsonDecode(rulesJson);
+      return rulesList.cast<Map<String, dynamic>>();
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error getting automation rules: $e');
+      }
+      return [];
+    }
+  }
+
+  Future<void> saveAutomationRules(List<Map<String, dynamic>> rules) async {
+    try {
+      if (_prefs == null) return;
+      
+      final rulesJson = jsonEncode(rules);
+      await _prefs!.setString('automation_rules', rulesJson);
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error saving automation rules: $e');
+      }
+    }
+  }
+
+  // Automation Logs Storage
+  Future<List<Map<String, dynamic>>> getAutomationLogs() async {
+    try {
+      if (_prefs == null) return [];
+      
+      final logsJson = _prefs!.getString('automation_logs');
+      if (logsJson == null) return [];
+      
+      final List<dynamic> logsList = jsonDecode(logsJson);
+      return logsList.cast<Map<String, dynamic>>();
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error getting automation logs: $e');
+      }
+      return [];
+    }
+  }
+
+  Future<void> saveAutomationLogs(List<Map<String, dynamic>> logs) async {
+    try {
+      if (_prefs == null) return;
+      
+      final logsJson = jsonEncode(logs);
+      await _prefs!.setString('automation_logs', logsJson);
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error saving automation logs: $e');
+      }
     }
   }
 

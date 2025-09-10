@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../models/device_status.dart';
+import '../services/automation_service.dart';
 import '../utils/theme.dart';
 import '../utils/helpers.dart';
 
@@ -11,6 +13,7 @@ class DeviceCard extends StatefulWidget {
   final IconData icon;
   final VoidCallback? onTap;
   final VoidCallback? onToggle;
+  final VoidCallback? onAutomation;
   final Color? customColor;
   final String? subtitle;
   final bool showToggle;
@@ -25,6 +28,7 @@ class DeviceCard extends StatefulWidget {
     required this.icon,
     this.onTap,
     this.onToggle,
+    this.onAutomation,
     this.customColor,
     this.subtitle,
     this.showToggle = true,
@@ -72,6 +76,94 @@ class _DeviceCardState extends State<DeviceCard>
   void dispose() {
     _animationController.dispose();
     super.dispose();
+  }
+
+  void _showRuleExistsDialog(BuildContext context, String deviceName) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: AppTheme.warningColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(
+                Icons.warning,
+                color: AppTheme.warningColor,
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Text('$deviceName มีกฎอยู่แล้ว'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '$deviceName มีกฎอัตโนมัติอยู่แล้ว หากต้องการสร้างกฎใหม่ ให้ลบกฎเก่าก่อน',
+              style: const TextStyle(fontSize: 14),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppTheme.primaryColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.info_outline,
+                    color: AppTheme.primaryColor,
+                    size: 16,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'ไปที่หน้าจัดการกฎเพื่อดู แก้ไข หรือลบกฎที่มีอยู่',
+                      style: TextStyle(
+                        color: AppTheme.primaryColor,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('ปิด'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () {
+              Navigator.pop(context);
+              Navigator.pushNamed(context, '/automation');
+            },
+            icon: const Icon(Icons.settings),
+            label: const Text('จัดการกฎ'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primaryColor,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Color get _primaryColor {
@@ -171,6 +263,41 @@ class _DeviceCardState extends State<DeviceCard>
                               ],
                             ),
                           ),
+                          // Automation button
+                          if (widget.onAutomation != null && widget.isOnline) ...[
+                            Consumer<AutomationService>(
+                              builder: (context, automationService, child) {
+                                // Check if device already has rules
+                                final hasRules = automationService.rules.any(
+                                  (rule) => rule.actions.any(
+                                    (action) => action.deviceType == widget.deviceType,
+                                  ),
+                                );
+                                
+                                return IconButton(
+                                  onPressed: hasRules 
+                                      ? () => _showRuleExistsDialog(context, widget.title)
+                                      : widget.onAutomation,
+                                  icon: Icon(
+                                    Icons.smart_toy,
+                                    size: 20,
+                                    color: hasRules 
+                                        ? Colors.grey[400]
+                                        : _primaryColor.withOpacity(0.7),
+                                  ),
+                                  tooltip: hasRules 
+                                      ? '${widget.title} มีกฎอยู่แล้ว' 
+                                      : 'ตั้งค่าอัตโนมัติ',
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(
+                                    minWidth: 32,
+                                    minHeight: 32,
+                                  ),
+                                );
+                              },
+                            ),
+                            const SizedBox(width: 4),
+                          ],
                           // Online/Offline indicator
                           Container(
                             width: 12,
@@ -274,12 +401,14 @@ class _DeviceCardState extends State<DeviceCard>
 class LightDeviceCard extends StatelessWidget {
   final DeviceStatus deviceStatus;
   final VoidCallback? onToggle;
+  final VoidCallback? onAutomation;
   final bool isLoading;
 
   const LightDeviceCard({
     super.key,
     required this.deviceStatus,
     this.onToggle,
+    this.onAutomation,
     this.isLoading = false,
   });
 
@@ -292,6 +421,7 @@ class LightDeviceCard extends StatelessWidget {
       isOnline: deviceStatus.online,
       isOn: deviceStatus.relay1,
       onToggle: onToggle,
+      onAutomation: onAutomation,
       isLoading: isLoading,
       subtitle: deviceStatus.online 
           ? 'พร้อมใช้งาน' 
@@ -305,12 +435,14 @@ class LightDeviceCard extends StatelessWidget {
 class FanDeviceCard extends StatelessWidget {
   final DeviceStatus deviceStatus;
   final VoidCallback? onToggle;
+  final VoidCallback? onAutomation;
   final bool isLoading;
 
   const FanDeviceCard({
     super.key,
     required this.deviceStatus,
     this.onToggle,
+    this.onAutomation,
     this.isLoading = false,
   });
 
@@ -323,6 +455,7 @@ class FanDeviceCard extends StatelessWidget {
       isOnline: deviceStatus.online,
       isOn: deviceStatus.relay2,
       onToggle: onToggle,
+      onAutomation: onAutomation,
       isLoading: isLoading,
       subtitle: deviceStatus.online 
           ? 'พร้อมใช้งาน' 
@@ -336,12 +469,14 @@ class FanDeviceCard extends StatelessWidget {
 class AirConditionerDeviceCard extends StatelessWidget {
   final DeviceStatus deviceStatus;
   final VoidCallback? onToggle;
+  final VoidCallback? onAutomation;
   final bool isLoading;
 
   const AirConditionerDeviceCard({
     super.key,
     required this.deviceStatus,
     this.onToggle,
+    this.onAutomation,
     this.isLoading = false,
   });
 
@@ -354,6 +489,7 @@ class AirConditionerDeviceCard extends StatelessWidget {
       isOnline: deviceStatus.online,
       isOn: deviceStatus.relay3,
       onToggle: onToggle,
+      onAutomation: onAutomation,
       isLoading: isLoading,
       subtitle: deviceStatus.online 
           ? 'พร้อมใช้งาน' 
@@ -367,12 +503,14 @@ class AirConditionerDeviceCard extends StatelessWidget {
 class WaterPumpDeviceCard extends StatelessWidget {
   final DeviceStatus deviceStatus;
   final VoidCallback? onToggle;
+  final VoidCallback? onAutomation;
   final bool isLoading;
 
   const WaterPumpDeviceCard({
     super.key,
     required this.deviceStatus,
     this.onToggle,
+    this.onAutomation,
     this.isLoading = false,
   });
 
@@ -385,6 +523,7 @@ class WaterPumpDeviceCard extends StatelessWidget {
       isOnline: deviceStatus.online,
       isOn: deviceStatus.relay4,
       onToggle: onToggle,
+      onAutomation: onAutomation,
       isLoading: isLoading,
       subtitle: deviceStatus.online 
           ? 'พร้อมใช้งาน' 
@@ -398,12 +537,14 @@ class WaterPumpDeviceCard extends StatelessWidget {
 class HeaterDeviceCard extends StatelessWidget {
   final DeviceStatus deviceStatus;
   final VoidCallback? onToggle;
+  final VoidCallback? onAutomation;
   final bool isLoading;
 
   const HeaterDeviceCard({
     super.key,
     required this.deviceStatus,
     this.onToggle,
+    this.onAutomation,
     this.isLoading = false,
   });
 
@@ -416,6 +557,7 @@ class HeaterDeviceCard extends StatelessWidget {
       isOnline: deviceStatus.online,
       isOn: deviceStatus.relay5,
       onToggle: onToggle,
+      onAutomation: onAutomation,
       isLoading: isLoading,
       subtitle: deviceStatus.online 
           ? 'พร้อมใช้งาน' 
@@ -429,12 +571,14 @@ class HeaterDeviceCard extends StatelessWidget {
 class ExtraDeviceCard extends StatelessWidget {
   final DeviceStatus deviceStatus;
   final VoidCallback? onToggle;
+  final VoidCallback? onAutomation;
   final bool isLoading;
 
   const ExtraDeviceCard({
     super.key,
     required this.deviceStatus,
     this.onToggle,
+    this.onAutomation,
     this.isLoading = false,
   });
 
@@ -447,6 +591,7 @@ class ExtraDeviceCard extends StatelessWidget {
       isOnline: deviceStatus.online,
       isOn: deviceStatus.relay6,
       onToggle: onToggle,
+      onAutomation: onAutomation,
       isLoading: isLoading,
       subtitle: deviceStatus.online 
           ? 'พร้อมใช้งาน' 
