@@ -1488,6 +1488,7 @@ class _HomeScreenState extends State<HomeScreen>
         const SizedBox(height: 12),
         SensorOverviewCard(
           deviceStatus: _deviceStatus!,
+          chartData: _sensorHistory,
           onTap: () => _navigateToSensorDetail('ภาพรวม'),
         ),
       ],

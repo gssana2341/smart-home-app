@@ -361,15 +361,24 @@ class GasSensorCard extends StatelessWidget {
 }
 
 // Sensor Overview Card with multiple values
-class SensorOverviewCard extends StatelessWidget {
+class SensorOverviewCard extends StatefulWidget {
   final DeviceStatus deviceStatus;
+  final List<SensorData>? chartData;
   final VoidCallback? onTap;
 
   const SensorOverviewCard({
     super.key,
     required this.deviceStatus,
+    this.chartData,
     this.onTap,
   });
+
+  @override
+  State<SensorOverviewCard> createState() => _SensorOverviewCardState();
+}
+
+class _SensorOverviewCardState extends State<SensorOverviewCard> {
+  bool _showChart = false;
 
   @override
   Widget build(BuildContext context) {
@@ -381,7 +390,14 @@ class SensorOverviewCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
       ),
       child: InkWell(
-        onTap: onTap,
+        onTap: () {
+          setState(() {
+            _showChart = !_showChart;
+          });
+          if (widget.onTap != null) {
+            widget.onTap!();
+          }
+        },
         borderRadius: BorderRadius.circular(16),
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -396,11 +412,18 @@ class SensorOverviewCard extends StatelessWidget {
                     size: 28,
                   ),
                   const SizedBox(width: 12),
-                  Text(
-                    'ภาพรวม Sensors',
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
+                  Expanded(
+                    child: Text(
+                      'ภาพรวม Sensors',
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
+                  ),
+                  Icon(
+                    _showChart ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+                    color: AppTheme.primaryColor,
+                    size: 24,
                   ),
                 ],
               ),
@@ -414,8 +437,8 @@ class SensorOverviewCard extends StatelessWidget {
                       context,
                       Icons.thermostat,
                       'อุณหภูมิ',
-                      AppHelpers.formatTemperature(deviceStatus.temperature),
-                      AppHelpers.getTemperatureColor(deviceStatus.temperature),
+                      AppHelpers.formatTemperature(widget.deviceStatus.temperature),
+                      AppHelpers.getTemperatureColor(widget.deviceStatus.temperature),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -424,8 +447,8 @@ class SensorOverviewCard extends StatelessWidget {
                       context,
                       Icons.water_drop,
                       'ความชื้น',
-                      AppHelpers.formatHumidity(deviceStatus.humidity),
-                      AppHelpers.getHumidityColor(deviceStatus.humidity),
+                      AppHelpers.formatHumidity(widget.deviceStatus.humidity),
+                      AppHelpers.getHumidityColor(widget.deviceStatus.humidity),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -434,12 +457,18 @@ class SensorOverviewCard extends StatelessWidget {
                       context,
                       Icons.sensors,
                       'ก๊าซ',
-                      AppHelpers.formatGasLevel(deviceStatus.gasLevel),
-                      AppHelpers.getGasLevelColor(deviceStatus.gasLevel),
+                      AppHelpers.formatGasLevel(widget.deviceStatus.gasLevel),
+                      AppHelpers.getGasLevelColor(widget.deviceStatus.gasLevel),
                     ),
                   ),
                 ],
               ),
+              
+              // Show mini chart only when tapped
+              if (_showChart && widget.chartData != null && widget.chartData!.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                _buildMiniChart(context),
+              ],
             ],
           ),
         ),
@@ -493,5 +522,211 @@ class SensorOverviewCard extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  Widget _buildMiniChart(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    
+    if (widget.chartData == null || widget.chartData!.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    // Get recent data points (last 10 points)
+    final recentData = widget.chartData!.length > 10 
+        ? widget.chartData!.sublist(widget.chartData!.length - 10)
+        : widget.chartData!;
+
+    return Container(
+      height: 240, // เพิ่มความสูงเพื่อรองรับ 3 แถว
+      padding: const EdgeInsets.all(8),
+      child: Column(
+        children: [
+          // Temperature chart
+          Expanded(
+            child: _buildSingleMiniChart(
+              context,
+              recentData.map((d) => d.temperature).toList(),
+              AppHelpers.getTemperatureColor(widget.deviceStatus.temperature),
+              'อุณหภูมิ',
+            ),
+          ),
+          const SizedBox(height: 8),
+          // Humidity chart
+          Expanded(
+            child: _buildSingleMiniChart(
+              context,
+              recentData.map((d) => d.humidity).toList(),
+              AppHelpers.getHumidityColor(widget.deviceStatus.humidity),
+              'ความชื้น',
+            ),
+          ),
+          const SizedBox(height: 8),
+          // Gas chart
+          Expanded(
+            child: _buildSingleMiniChart(
+              context,
+              recentData.map((d) => d.gasLevel.toDouble()).toList(),
+              AppHelpers.getGasLevelColor(widget.deviceStatus.gasLevel),
+              'ก๊าซ',
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSingleMiniChart(
+    BuildContext context,
+    List<double> data,
+    Color color,
+    String label,
+  ) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    if (data.isEmpty) {
+      return Center(
+        child: Text(
+          'ไม่มีข้อมูล',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: isDark ? Colors.grey[400] : Colors.grey[600],
+          ),
+        ),
+      );
+    }
+
+    // Find min and max values for scaling
+    final minValue = data.reduce((a, b) => a < b ? a : b);
+    final maxValue = data.reduce((a, b) => a > b ? a : b);
+    final range = maxValue - minValue;
+    
+    if (range == 0) {
+      return Center(
+        child: Text(
+          'ค่าคงที่',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: color,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: color.withOpacity(0.3),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Icon(
+                _getIconForLabel(label),
+                color: color,
+                size: 16,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: color,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                '${data.last.toStringAsFixed(1)}${_getUnitForLabel(label)}',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: color,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Expanded(
+            child: LineChart(
+              LineChartData(
+                gridData: FlGridData(
+                  show: true,
+                  drawVerticalLine: false,
+                  horizontalInterval: 0.25,
+                  getDrawingHorizontalLine: (value) {
+                    return FlLine(
+                      color: color.withOpacity(0.1),
+                      strokeWidth: 1,
+                    );
+                  },
+                ),
+                titlesData: FlTitlesData(show: false),
+                borderData: FlBorderData(show: false),
+                lineBarsData: [
+                  LineChartBarData(
+                    spots: data.asMap().entries.map((entry) {
+                      final x = entry.key.toDouble();
+                      final y = 1 - ((entry.value - minValue) / range);
+                      return FlSpot(x, y);
+                    }).toList(),
+                    isCurved: true,
+                    color: color,
+                    barWidth: 3,
+                    isStrokeCapRound: true,
+                    dotData: FlDotData(
+                      show: true,
+                      getDotPainter: (spot, percent, barData, index) {
+                        return FlDotCirclePainter(
+                          radius: 3,
+                          color: color,
+                          strokeWidth: 2,
+                          strokeColor: Colors.white,
+                        );
+                      },
+                    ),
+                    belowBarData: BarAreaData(
+                      show: true,
+                      color: color.withOpacity(0.15),
+                    ),
+                  ),
+                ],
+                lineTouchData: LineTouchData(enabled: false),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  IconData _getIconForLabel(String label) {
+    switch (label) {
+      case 'อุณหภูมิ':
+        return Icons.thermostat;
+      case 'ความชื้น':
+        return Icons.water_drop;
+      case 'ก๊าซ':
+        return Icons.sensors;
+      default:
+        return Icons.show_chart;
+    }
+  }
+
+  String _getUnitForLabel(String label) {
+    switch (label) {
+      case 'อุณหภูมิ':
+        return '°C';
+      case 'ความชื้น':
+        return '%';
+      case 'ก๊าซ':
+        return ' ppm';
+      default:
+        return '';
+    }
   }
 }

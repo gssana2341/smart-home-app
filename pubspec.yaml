@@ -50,9 +50,7 @@ flutter:
 
   # Assets
   assets:
-    - assets/images/
-    - assets/icons/
-    - assets/svg/
+    - assets/fonts/
 
   # Fonts (Google Fonts will handle Roboto automatically)
   fonts:
