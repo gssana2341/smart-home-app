@@ -434,14 +434,13 @@ $context
       }
     } catch (e) {
       // Fallback response สำหรับกรณีที่ API ช้าหรือไม่สามารถเชื่อมต่อได้
-      String fallbackResponse = _getFallbackResponse(voiceInput);
-      
       return VoiceCommand(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         command: voiceInput,
-        result: fallbackResponse,
+        result: 'ขออภัยครับ เกิดข้อผิดพลาดในการประมวลผลคำสั่ง กรุณาลองใหม่อีกครั้งครับ',
         timestamp: DateTime.now(),
-        isSuccess: true, // เปลี่ยนเป็น true เพื่อให้ TTS พูด fallback response
+        isSuccess: false,
+        errorMessage: e.toString(),
       );
     }
   }
