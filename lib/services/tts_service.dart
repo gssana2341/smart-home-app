@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
 import 'dart:convert';
-import 'dart:html' as html;
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import '../config/api_keys.dart';
@@ -187,88 +186,8 @@ class TtsService extends ChangeNotifier {
   
   /// พูดข้อความบน Web
   Future<bool> _speakWeb(String text) async {
-    try {
-      print('OpenAI TTS: Speaking text: "$text"');
-      print('OpenAI TTS: Using voice: $_defaultVoice');
-      print('OpenAI TTS: API URL: $_openaiTtsUrl');
-      
-      // ใช้ OpenAI TTS API
-      final response = await http.post(
-        Uri.parse(_openaiTtsUrl),
-        headers: {
-          'Authorization': 'Bearer $_openaiApiKey',
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode({
-          'model': 'tts-1',
-          'input': text,
-          'voice': _defaultVoice,
-          'response_format': 'mp3',
-        }),
-      );
-      
-      print('OpenAI TTS: Response status: ${response.statusCode}');
-      
-      if (response.statusCode == 200) {
-        // ได้ไฟล์เสียง MP3 จาก OpenAI
-        final audioData = response.bodyBytes;
-        
-        print('OpenAI TTS: Audio received, length: ${audioData.length} bytes');
-        
-        // หยุด audio ที่กำลังเล่นอยู่ก่อน
-        await stop();
-        
-        // แสดงสถานะการพูด
-        _isSpeaking = true;
-        notifyListeners();
-        
-        // เล่นเสียงบน Web ใช้ HTML5 Audio API
-        try {
-          // สร้าง Blob จาก audio data
-          final blob = html.Blob([audioData], 'audio/mpeg');
-          final url = html.Url.createObjectUrl(blob);
-          
-          // สร้าง Audio element
-          final audio = html.AudioElement()
-            ..src = url
-            ..autoplay = true;
-          
-          // ฟังเหตุการณ์เมื่อเล่นเสร็จ
-          audio.onEnded.listen((_) {
-            print('OpenAI TTS: Audio playback completed');
-            _isSpeaking = false;
-            notifyListeners();
-            html.Url.revokeObjectUrl(url); // ล้าง URL
-          });
-          
-          // ฟังเหตุการณ์เมื่อเกิดข้อผิดพลาด
-          audio.onError.listen((event) {
-            print('OpenAI TTS: Audio playback error: $event');
-            _isSpeaking = false;
-            notifyListeners();
-            html.Url.revokeObjectUrl(url);
-          });
-          
-          // เริ่มเล่นเสียง
-          await audio.play();
-          print('OpenAI TTS: Audio playback started');
-          
-        } catch (audioError) {
-          print('OpenAI TTS: Audio playback error: $audioError');
-          _isSpeaking = false;
-          notifyListeners();
-          return false;
-        }
-        
-        return true;
-      } else {
-        print('OpenAI TTS Error: ${response.statusCode} - ${response.body}');
-        return false;
-      }
-    } catch (e) {
-      print('OpenAI TTS error: $e');
-      return false;
-    }
+    // Web functionality not available on mobile
+    return await _speakMobile(text);
   }
 
   /// พูดข้อความบน Mobile (ใช้การจำลอง)
