@@ -29,13 +29,24 @@ class AiService {
         return await _processWithOpenAI(voiceInput, deviceStatus);
       }
     } catch (e) {
+      String errorMessage = e.toString();
+      String userMessage;
+      
+      if (errorMessage.contains('429')) {
+        userMessage = 'ขออภัยครับ OpenAI API เกินขีดจำกัดการใช้งาน กรุณารอสักครู่แล้วลองใหม่ครับ';
+      } else if (errorMessage.contains('timeout')) {
+        userMessage = 'ขออภัยครับ การเชื่อมต่อช้าเกินไป กรุณาลองใหม่อีกครั้งครับ';
+      } else {
+        userMessage = 'ขออภัยครับ เกิดข้อผิดพลาดในการประมวลผล กรุณาลองใหม่อีกครั้งครับ';
+      }
+      
       return VoiceCommand(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         command: voiceInput,
-        result: 'เกิดข้อผิดพลาดในการประมวลผล: $e',
+        result: userMessage,
         timestamp: DateTime.now(),
         isSuccess: false,
-        errorMessage: e.toString(),
+        errorMessage: errorMessage,
       );
     }
   }
@@ -420,7 +431,7 @@ $context
             'content': prompt,
           },
         ],
-        'max_tokens': 300,
+        'max_tokens': 150,
         'temperature': 0.7,
       };
 
@@ -446,18 +457,32 @@ $context
           timestamp: DateTime.now(),
           isSuccess: true,
         );
+      } else if (response.statusCode == 429) {
+        // Rate limit exceeded - รอ 1 นาทีแล้วลองใหม่
+        await Future.delayed(const Duration(minutes: 1));
+        throw Exception('OpenAI API Rate Limit Exceeded - รอ 1 นาทีแล้วลองใหม่');
       } else {
         throw Exception('OpenAI API Error: ${response.statusCode}');
       }
     } catch (e) {
-      // Fallback response สำหรับกรณีที่ API ช้าหรือไม่สามารถเชื่อมต่อได้
+      String errorMessage = e.toString();
+      String userMessage;
+      
+      if (errorMessage.contains('429')) {
+        userMessage = 'ขออภัยครับ OpenAI API เกินขีดจำกัดการใช้งาน กรุณารอสักครู่แล้วลองใหม่ครับ';
+      } else if (errorMessage.contains('timeout')) {
+        userMessage = 'ขออภัยครับ การเชื่อมต่อช้าเกินไป กรุณาลองใหม่อีกครั้งครับ';
+      } else {
+        userMessage = 'ขออภัยครับ เกิดข้อผิดพลาดในการประมวลผลคำสั่ง กรุณาลองใหม่อีกครั้งครับ';
+      }
+      
       return VoiceCommand(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         command: voiceInput,
-        result: 'ขออภัยครับ เกิดข้อผิดพลาดในการประมวลผลคำสั่ง กรุณาลองใหม่อีกครั้งครับ',
+        result: userMessage,
         timestamp: DateTime.now(),
         isSuccess: false,
-        errorMessage: e.toString(),
+        errorMessage: errorMessage,
       );
     }
   }
@@ -565,7 +590,7 @@ $context
           'content': prompt,
         },
       ],
-      'max_tokens': 200,
+      'max_tokens': 100,
       'temperature': 0.7,
     };
 
@@ -586,6 +611,10 @@ $context
         timestamp: DateTime.now(),
         isSuccess: true,
       );
+    } else if (response.statusCode == 429) {
+      // Rate limit exceeded - รอ 1 นาทีแล้วลองใหม่
+      await Future.delayed(const Duration(minutes: 1));
+      throw Exception('OpenAI API Rate Limit Exceeded - รอ 1 นาทีแล้วลองใหม่');
     } else {
       throw Exception('OpenAI API Error: ${response.statusCode}');
     }
