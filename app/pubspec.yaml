@@ -18,7 +18,7 @@ dependencies:
   dio: ^5.3.2
 
   # MQTT Client
-  mqtt_client: 10.11.0
+  mqtt_client: ^10.11.0
 
   # Local Storage
   shared_preferences: ^2.2.2
@@ -31,8 +31,8 @@ dependencies:
 
   # Permissions & Device
   permission_handler: ^12.0.1
-  speech_to_text: ^7.3.0
-  flutter_tts: ^4.2.3
+  speech_to_text: ^7.0.0
+  flutter_tts: ^3.8.5
 
   # Utilities
   intl: ^0.19.0
