@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/voice_command.dart';
 import '../models/device_status.dart';
@@ -12,8 +13,13 @@ class AiService {
   // ใช้ API key ของ OpenAI (ต้องตั้งค่าเอง)
   static const String _apiKey = ApiKeys.openaiApiKey;
   
-  // ใช้ local AI model แทน (ไม่ต้องใช้ API key)
-  static const bool _useLocalAI = false; // เปลี่ยนเป็น false เพื่อใช้ GPT-4o mini
+  // โหมดเลือกใช้ Local AI อัตโนมัติบนเว็บหรือเมื่อไม่มี API Key
+  static bool get _useLocalAI => kIsWeb || _apiKey.isEmpty;
+  
+  // Rate limiting
+  static DateTime? _lastRequestTime;
+  static const Duration _minRequestInterval = Duration(seconds: 2);
+  static bool _isProcessing = false;
 
   /// ประมวลผลคำสั่งเสียงและแปลงเป็นคำสั่งควบคุม
   Future<VoiceCommand> processVoiceCommand(
@@ -21,30 +27,52 @@ class AiService {
     DeviceStatus? deviceStatus,
   ) async {
     try {
+      // Rate limiting check
+      if (_isProcessing) {
+        return VoiceCommand(
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          command: voiceInput,
+          result: 'ระบบกำลังประมวลผลคำสั่งอื่น กรุณารอสักครู่',
+          timestamp: DateTime.now(),
+          isSuccess: false,
+          errorMessage: 'System busy',
+        );
+      }
+      
+      final now = DateTime.now();
+      if (_lastRequestTime != null && 
+          now.difference(_lastRequestTime!) < _minRequestInterval) {
+        return VoiceCommand(
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          command: voiceInput,
+          result: 'กรุณารอสักครู่ก่อนส่งคำสั่งใหม่',
+          timestamp: DateTime.now(),
+          isSuccess: false,
+          errorMessage: 'Rate limited',
+        );
+      }
+      
+      _isProcessing = true;
+      _lastRequestTime = now;
+      
+      VoiceCommand result;
       if (_useLocalAI) {
-        return _processWithLocalAI(voiceInput, deviceStatus);
+        result = await _processWithLocalAI(voiceInput, deviceStatus);
       } else {
-        return await _processWithOpenAI(voiceInput, deviceStatus);
+        result = await _processWithOpenAI(voiceInput, deviceStatus);
       }
+      
+      _isProcessing = false;
+      return result;
     } catch (e) {
-      String errorMessage = e.toString();
-      String userMessage;
-      
-      if (errorMessage.contains('429')) {
-        userMessage = 'ขออภัยครับ OpenAI API เกินขีดจำกัดการใช้งาน กรุณารอสักครู่แล้วลองใหม่ครับ';
-      } else if (errorMessage.contains('timeout')) {
-        userMessage = 'ขออภัยครับ การเชื่อมต่อช้าเกินไป กรุณาลองใหม่อีกครั้งครับ';
-      } else {
-        userMessage = 'ขออภัยครับ เกิดข้อผิดพลาดในการประมวลผล กรุณาลองใหม่อีกครั้งครับ';
-      }
-      
+      _isProcessing = false;
       return VoiceCommand(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         command: voiceInput,
-        result: userMessage,
+        result: 'เกิดข้อผิดพลาดในการประมวลผล: $e',
         timestamp: DateTime.now(),
         isSuccess: false,
-        errorMessage: errorMessage,
+        errorMessage: e.toString(),
       );
     }
   }
@@ -324,6 +352,16 @@ class AiService {
   /// ประมวลผลคำถามทั่วไปด้วย GPT-4o mini
   Future<VoiceCommand> _processGeneralQuestion(String voiceInput, DeviceStatus? deviceStatus) async {
     try {
+      if (_useLocalAI) {
+        // บนเว็บหรือไม่มีคีย์ ให้ตอบกลับแบบ Local ทันที
+        return VoiceCommand(
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          command: voiceInput,
+          result: 'ฉันพร้อมช่วยตอบคำถามทั่วไปครับ (โหมดออฟไลน์)\n\nคุณถาม: "$voiceInput"',
+          timestamp: DateTime.now(),
+          isSuccess: true,
+        );
+      }
       final headers = {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $_apiKey',
@@ -414,7 +452,7 @@ $context
             'content': prompt,
           },
         ],
-        'max_tokens': 150,
+        'max_tokens': 300,
         'temperature': 0.7,
       };
 
@@ -440,32 +478,18 @@ $context
           timestamp: DateTime.now(),
           isSuccess: true,
         );
-      } else if (response.statusCode == 429) {
-        // Rate limit exceeded - รอ 1 นาทีแล้วลองใหม่
-        await Future.delayed(const Duration(minutes: 1));
-        throw Exception('OpenAI API Rate Limit Exceeded - รอ 1 นาทีแล้วลองใหม่');
       } else {
         throw Exception('OpenAI API Error: ${response.statusCode}');
       }
     } catch (e) {
-      String errorMessage = e.toString();
-      String userMessage;
-      
-      if (errorMessage.contains('429')) {
-        userMessage = 'ขออภัยครับ OpenAI API เกินขีดจำกัดการใช้งาน กรุณารอสักครู่แล้วลองใหม่ครับ';
-      } else if (errorMessage.contains('timeout')) {
-        userMessage = 'ขออภัยครับ การเชื่อมต่อช้าเกินไป กรุณาลองใหม่อีกครั้งครับ';
-      } else {
-        userMessage = 'ขออภัยครับ เกิดข้อผิดพลาดในการประมวลผลคำสั่ง กรุณาลองใหม่อีกครั้งครับ';
-      }
-      
+      // Fallback response สำหรับกรณีที่ API ช้าหรือไม่สามารถเชื่อมต่อได้
       return VoiceCommand(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         command: voiceInput,
-        result: userMessage,
+        result: 'ขออภัยครับ เกิดข้อผิดพลาดในการประมวลผลคำสั่ง กรุณาลองใหม่อีกครั้งครับ',
         timestamp: DateTime.now(),
         isSuccess: false,
-        errorMessage: errorMessage,
+        errorMessage: e.toString(),
       );
     }
   }
@@ -558,7 +582,7 @@ $context
           'content': prompt,
         },
       ],
-      'max_tokens': 100,
+      'max_tokens': 200,
       'temperature': 0.7,
     };
 
@@ -579,10 +603,6 @@ $context
         timestamp: DateTime.now(),
         isSuccess: true,
       );
-    } else if (response.statusCode == 429) {
-      // Rate limit exceeded - รอ 1 นาทีแล้วลองใหม่
-      await Future.delayed(const Duration(minutes: 1));
-      throw Exception('OpenAI API Rate Limit Exceeded - รอ 1 นาทีแล้วลองใหม่');
     } else {
       throw Exception('OpenAI API Error: ${response.statusCode}');
     }

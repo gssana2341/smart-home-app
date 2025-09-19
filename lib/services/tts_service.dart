@@ -1,285 +1,245 @@
 import 'package:flutter/foundation.dart';
 import 'dart:convert';
 import 'dart:typed_data';
+import 'dart:async';
 import 'package:http/http.dart' as http;
 import '../config/api_keys.dart';
+import 'dart:html' as html;
 
+/// A robust Text-to-Speech service for web, designed to handle the strict
+/// autoplay policies of modern mobile browsers.
+///
+/// It uses an "audio unlock" pattern: on the first user interaction, a silent
+/// audio clip is played to gain permission for future, non-user-initiated
+/// audio playback. This is essential for scenarios where audio needs to play
+/// after an asynchronous delay (e.g., waiting for an API response).
 class TtsService extends ChangeNotifier {
   static TtsService? _instance;
   static TtsService get instance => _instance ??= TtsService._();
-  
+
   TtsService._();
-  
-  // OpenAI TTS Configuration
-  static const String _openaiApiKey = ApiKeys.openaiApiKey;
-  static const String _openaiTtsUrl = 'https://api.openai.com/v1/audio/speech';
-  static const String _defaultVoice = 'fable'; // alloy, echo, fable, onyx, nova (onyx = เสียงผู้ชาย)
-  
-  bool _isInitialized = false;
+
+  html.AudioElement? _audioElement;
   bool _isSpeaking = false;
-  
-  // Queue management
-  final List<String> _speechQueue = [];
-  bool _isProcessingQueue = false;
-  
-  bool get isInitialized => _isInitialized;
+  bool _isUnlocked = false; // Tracks if the audio context has been unlocked
+  bool _isInitialized = false; // Tracks if service is initialized
+
+  // Simple speech queue to satisfy callers that show queue size
+  final List<String> _queue = <String>[];
+
   bool get isSpeaking => _isSpeaking;
-  bool get isProcessingQueue => _isProcessingQueue;
-  int get queueLength => _speechQueue.length;
-  List<String> get currentQueue => List.unmodifiable(_speechQueue);
-  
-  /// เริ่มต้น TTS Service
+  bool get isInitialized => _isInitialized;
+  int get queueLength => _queue.length;
+
+  /// Prepares the service by creating an audio element and setting up a
+  /// one-time event listener to unlock audio playback on the first user gesture.
   Future<bool> initialize() async {
-    if (_isInitialized) return true;
-    
+    if (_isInitialized && _audioElement != null) return true;
+
+    _audioElement = html.AudioElement();
+    _isInitialized = true;
+    print('TTS Service Initialized for Web');
+
+    // Listen for the very first user interaction anywhere on the window.
+    // Using window-level listeners avoids relying on document.body which can
+    // be unavailable in some compilation targets.
     try {
-      _isInitialized = true;
-      notifyListeners();
-      print('TTS initialized successfully');
-      return true;
-    } catch (e) {
-      print('TTS initialization error: $e');
-      return false;
-    }
+      unawaited(html.window.onClick.first.then((_) => _unlockAudio()));
+    } catch (_) {}
+    try {
+      // Touch events on desktop may not exist; wrap in try to be safe.
+      unawaited(html.window.onTouchStart.first.then((_) => _unlockAudio()));
+    } catch (_) {}
+
+    return true;
   }
-  
-  /// พูดข้อความ (แบบ queue)
-  Future<bool> speak(String text) async {
-    print('TTS: Starting to speak: "$text"');
-    
-    if (!_isInitialized) {
-      print('TTS: Not initialized, initializing...');
-      final initialized = await initialize();
-      if (!initialized) {
-        print('TTS: Initialization failed');
-        return false;
-      }
+
+  /// The "unlock" function. Plays a tiny, silent MP3 data URI.
+  /// This is called only once upon the first user gesture.
+  void _unlockAudio() {
+    if (_isUnlocked || _audioElement == null) return;
+
+    print('TTS: Attempting to unlock audio context...');
+    // A silent, 1-second MP3 file encoded in Base64.
+    const silentAudio = 'data:audio/mpeg;base64,SUQzBAAAAAABEVRYWFgAAAAtAAADY29tbWVudABCaWcgTW9uZXkgT3ducyBJbmMuTERDLiBXYWxsYWNlIFN0cmVldC4gQ29weXJpZ2h0IChDKSAyMDAxAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD/80DEAAAAA0gAAAAATEFNRTMuMTAwVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/zQsRbAAADSAAAAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/zQMSkAAADSAAAAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV';
+    _audioElement!.src = silentAudio;
+    _audioElement!.play().then((_) {
+      _isUnlocked = true;
+      print('TTS: Audio context unlocked successfully.');
+    }).catchError((e) {
+      print('TTS: Audio unlock failed. Playback may not work. Error: $e');
+    });
+  }
+
+  Future<void> speak(String text) async {
+    if (_audioElement == null) {
+      print('TTS Error: Service not initialized.');
+      return;
     }
-    
+    if (!_isUnlocked) {
+      print('TTS Warning: Audio not unlocked. Sound may be blocked by browser.');
+    }
+    if (text.trim().isEmpty) return;
+
+    await stop(); // Stop any previous speech
+
+    _isSpeaking = true;
+    notifyListeners();
+
     try {
-      // เพิ่มข้อความลงใน queue
-      _speechQueue.add(text);
-      print('TTS: Added to queue: "$text" (Queue length: ${_speechQueue.length})');
-      
-      // เริ่มประมวลผล queue ถ้ายังไม่ได้เริ่ม
-      if (!_isProcessingQueue) {
-        _processQueue();
+      final audioBytes = await _fetchOpenAIAudio(text);
+      if (audioBytes != null) {
+        await _playAudioBytes(audioBytes);
+      } else {
+        print('TTS Fallback: Using Web Speech API.');
+        await _speakWithWebSpeechAPI(text);
       }
-      
-      return true;
     } catch (e) {
       print('TTS speak error: $e');
-      return false;
-    }
-  }
-
-  /// พูดข้อความทันที (ไม่ใช้ queue)
-  Future<bool> speakImmediate(String text) async {
-    print('TTS: Speaking immediately: "$text"');
-    
-    if (!_isInitialized) {
-      print('TTS: Not initialized, initializing...');
-      final initialized = await initialize();
-      if (!initialized) {
-        print('TTS: Initialization failed');
-        return false;
-      }
-    }
-    
-    try {
-      // หยุดการพูดปัจจุบันและล้าง queue
-      await stop();
-      _speechQueue.clear();
-      _isProcessingQueue = false;
-      
-      print('TTS: Speaking immediately: "$text"');
-      return await _speakText(text);
-    } catch (e) {
-      print('TTS speakImmediate error: $e');
-      return false;
-    }
-  }
-
-  /// ประมวลผล queue
-  Future<void> _processQueue() async {
-    if (_isProcessingQueue) return;
-    
-    _isProcessingQueue = true;
-    print('TTS: Starting queue processing...');
-    
-    while (_speechQueue.isNotEmpty) {
-      final text = _speechQueue.removeAt(0);
-      print('TTS: Processing queue item: "$text" (Remaining: ${_speechQueue.length})');
-      
-      try {
-        await _speakText(text);
-        
-        // รอให้การพูดเสร็จสิ้น
-        while (_isSpeaking) {
-          await Future.delayed(const Duration(milliseconds: 100));
-        }
-        
-        // รอสักครู่ก่อนพูดข้อความถัดไป
-        await Future.delayed(const Duration(milliseconds: 500));
-      } catch (e) {
-        print('TTS: Error processing queue item: $e');
-      }
-    }
-    
-    _isProcessingQueue = false;
-    print('TTS: Queue processing completed');
-  }
-  
-  /// หยุดการพูด
-  Future<bool> stop() async {
-    try {
-      print('TTS: Stopping current speech...');
-      
+    } finally {
       if (_isSpeaking) {
         _isSpeaking = false;
         notifyListeners();
       }
-      
-      print('TTS: Speech stopped successfully');
+    }
+  }
+
+  /// Convenience method used by callers expecting a boolean result.
+  /// Adds text to an internal queue for visibility and plays immediately.
+  Future<bool> speakAuto(String text) async {
+    try {
+      if (!_isInitialized) {
+        await initialize();
+      }
+      if (text.trim().isEmpty) return false;
+      _queue.add(text);
+      notifyListeners();
+      await speak(text);
+      if (_queue.isNotEmpty) {
+        _queue.removeAt(0);
+        notifyListeners();
+      }
       return true;
     } catch (e) {
-      print('TTS stop error: $e');
+      print('TTS speakAuto error: $e');
       return false;
     }
   }
 
-  /// หยุดการพูดและล้าง queue
-  Future<bool> stopAll() async {
-    try {
-      print('TTS: Stopping all speech and clearing queue...');
-      
-      // หยุดการพูดปัจจุบัน
-      await stop();
-      
-      // ล้าง queue
-      _speechQueue.clear();
-      _isProcessingQueue = false;
-      
-      print('TTS: All speech stopped and queue cleared');
-      return true;
-    } catch (e) {
-      print('TTS stopAll error: $e');
-      return false;
+  Future<void> stop() async {
+    if (_audioElement != null && !_audioElement!.paused) {
+      _audioElement!.pause();
+      _audioElement!.src = '';
+    }
+    html.window.speechSynthesis?.cancel();
+    if (_isSpeaking) {
+      _isSpeaking = false;
+      notifyListeners();
     }
   }
-  
-  /// พูดข้อความ
-  Future<bool> _speakText(String text) async {
+
+  Future<Uint8List?> _fetchOpenAIAudio(String text) async {
+    // On web, calling OpenAI from the browser can fail due to CORS and exposes the API key.
+    // Skip network TTS on web and fallback to Web Speech API.
+    if (kIsWeb) return null;
+    if (ApiKeys.openaiApiKey.isEmpty) return null;
     try {
-      print('TTS: Speaking text: "$text"');
-      
-      if (kIsWeb) {
-        return await _speakWeb(text);
+      final response = await http.post(
+        Uri.parse('https://api.openai.com/v1/audio/speech'),
+        headers: {
+          'Authorization': 'Bearer ${ApiKeys.openaiApiKey}',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({'model': 'tts-1','input': text,'voice': 'alloy'}),
+      );
+      if (response.statusCode == 200) {
+        return response.bodyBytes;
       } else {
-        return await _speakMobile(text);
+        // Log and fallback silently
+        print('TTS OpenAI HTTP ${response.statusCode}. Falling back to Web Speech API.');
+        return null;
       }
     } catch (e) {
-      print('TTS speakText error: $e');
-      return false;
+      print('TTS OpenAI network error: $e');
+      return null;
     }
-  }
-  
-  /// พูดข้อความบน Web
-  Future<bool> _speakWeb(String text) async {
-    // Web functionality not available on mobile
-    return await _speakMobile(text);
   }
 
-  /// พูดข้อความบน Mobile (ใช้การจำลอง)
-  Future<bool> _speakMobile(String text) async {
+  Future<void> _playAudioBytes(Uint8List audioBytes) async {
+    if (_audioElement == null) return;
+    final completer = Completer<void>();
     try {
-      print('TTS Mobile: Speaking text: "$text"');
+      final blob = html.Blob([audioBytes], 'audio/mpeg');
+      final url = html.Url.createObjectUrlFromBlob(blob);
+      _audioElement!.src = url;
+
+      StreamSubscription? endedSubscription, errorSubscription;
       
-      // แสดงสถานะการพูด
-      _isSpeaking = true;
-      notifyListeners();
-      
-      // จำลองการพูด (รอ 2 วินาที)
-      await Future.delayed(const Duration(seconds: 2));
-      
-      // หยุดการพูด
-      _isSpeaking = false;
-      notifyListeners();
-      
-      print('TTS Mobile: Speech completed');
-      return true;
+      var cleanup = () {
+        html.Url.revokeObjectUrl(url);
+        endedSubscription?.cancel();
+        errorSubscription?.cancel();
+        if (!completer.isCompleted) completer.complete();
+      };
+
+      endedSubscription = _audioElement!.onEnded.listen((_) => cleanup());
+      errorSubscription = _audioElement!.onError.listen((_) {
+        if (!completer.isCompleted) completer.completeError('Audio playback error');
+      });
+
+      _audioElement!.play();
+      await completer.future;
     } catch (e) {
-      print('TTS Mobile error: $e');
-      _isSpeaking = false;
-      notifyListeners();
-      return false;
+      if (!completer.isCompleted) completer.completeError(e);
     }
   }
-  
-  /// ตั้งค่าภาษา
-  Future<void> setLanguage(String languageCode) async {
-    print('TTS: Language set to $languageCode');
-  }
-  
-  /// ตั้งค่าความเร็วในการพูด
-  Future<void> setSpeechRate(double rate) async {
-    print('TTS: Speech rate set to $rate');
-  }
-  
-  /// ตั้งค่าความดัง
-  Future<void> setVolume(double volume) async {
-    print('TTS: Volume set to $volume');
-  }
-  
-  /// ตั้งค่าระดับเสียง
-  Future<void> setPitch(double pitch) async {
-    print('TTS: Pitch set to $pitch');
-  }
-  
-  /// ตั้งค่าเสียง OpenAI TTS
-  Future<void> setVoice(String voice) async {
-    if (['alloy', 'echo', 'fable', 'onyx', 'nova'].contains(voice)) {
-      print('TTS: Voice set to $voice');
-    }
-  }
-  
-  /// ดูเสียงที่รองรับ
-  List<String> getSupportedVoices() {
-    return ['alloy', 'echo', 'fable', 'onyx', 'nova'];
-  }
-  
-  /// ตรวจสอบว่าภาษาที่รองรับหรือไม่
-  Future<List<String>> getSupportedLanguages() async {
-    return ['th-TH', 'en-US', 'ja-JP', 'ko-KR', 'zh-CN'];
-  }
-  
-  /// ตรวจสอบว่าภาษาปัจจุบันรองรับหรือไม่
-  Future<bool> isLanguageAvailable(String languageCode) async {
+
+  Future<void> _speakWithWebSpeechAPI(String text) async {
+    final completer = Completer<void>();
     try {
-      final languages = await getSupportedLanguages();
-      return languages.contains(languageCode);
+      final speechSynthesis = html.window.speechSynthesis;
+      if (speechSynthesis == null) {
+        if(!completer.isCompleted) completer.complete();
+        return;
+      }
+      // Try to select a Thai voice if available
+      List<html.SpeechSynthesisVoice> voices = speechSynthesis.getVoices() ?? <html.SpeechSynthesisVoice>[];
+      if (voices.isEmpty) {
+        // Some browsers load voices asynchronously; wait briefly
+        await Future.delayed(const Duration(milliseconds: 200));
+        voices = speechSynthesis.getVoices() ?? <html.SpeechSynthesisVoice>[];
+      }
+
+      html.SpeechSynthesisVoice? thaiVoice;
+      if (voices.isNotEmpty) {
+        thaiVoice = voices.firstWhere(
+          (v) => (v.lang?.toLowerCase().startsWith('th') ?? false) || (v.name?.toLowerCase().contains('thai') ?? false),
+          orElse: () => voices.first,
+        );
+      }
+
+      final utterance = html.SpeechSynthesisUtterance(text)
+        ..lang = thaiVoice?.lang ?? 'th-TH'
+        ..voice = thaiVoice
+        ..rate = 0.9;
+      utterance.onEnd.listen((_) {
+        if (!completer.isCompleted) completer.complete();
+      });
+      utterance.onError.listen((_) {
+        if (!completer.isCompleted) completer.completeError('Web Speech API error');
+      });
+      speechSynthesis.speak(utterance);
+      await completer.future;
     } catch (e) {
-      return false;
+      if (!completer.isCompleted) completer.completeError(e);
     }
   }
-  
-  /// ตั้งค่าภาษาอัตโนมัติตามข้อความ
-  Future<void> setLanguageAuto(String text) async {
-    print('TTS: Auto language detection for: $text');
-  }
-  
-  /// พูดข้อความพร้อมตั้งค่าภาษาอัตโนมัติ
-  Future<bool> speakAuto(String text) async {
-    print('TTS: Speaking text: $text');
-    final result = await speak(text);
-    print('TTS: Speak result: $result');
-    return result;
-  }
-  
-  /// ปล่อยทรัพยากร
+
   @override
   void dispose() {
     stop();
+    _audioElement = null;
+    _isInitialized = false;
     super.dispose();
   }
 }

@@ -7,7 +7,7 @@ import '../models/device_status.dart';
 import 'ai_service.dart';
 import 'api_service.dart';
 import 'mqtt_service.dart';
-import 'storage_service.dart';
+import 'storage_service_simple.dart';
 import 'tts_service.dart';
 
 class VoiceCommandService extends ChangeNotifier {
@@ -22,6 +22,9 @@ class VoiceCommandService extends ChangeNotifier {
   bool _isListening = false;
   bool _isInitialized = false;
   bool _isProcessingCommand = false;
+  bool _hasPermission = false; // from speech_to_text
+  bool _isAvailable = false;   // from speech_to_text
+  String? _lastError;          // last error from onError
   
   // Stream controllers
   final StreamController<bool> _listeningController = StreamController<bool>.broadcast();
@@ -29,59 +32,74 @@ class VoiceCommandService extends ChangeNotifier {
   final StreamController<VoiceCommand> _commandResultController = StreamController<VoiceCommand>.broadcast();
   final StreamController<DeviceStatus> _deviceStatusUpdateController = StreamController<DeviceStatus>.broadcast();
 
+  String _lastRecognizedWords = '';
+  DateTime? _lastActivity;
+  Timer? _inactivityTimer;
+
   // Getters
   bool get isListening => _isListening;
   bool get isInitialized => _isInitialized;
+  bool get hasMicPermission => _hasPermission;
+  bool get isSpeechAvailable => _isAvailable;
+  String? get lastError => _lastError;
   Stream<bool> get listeningStream => _listeningController.stream;
   Stream<String> get transcriptionStream => _transcriptionController.stream;
   Stream<VoiceCommand> get commandResultStream => _commandResultController.stream;
   Stream<DeviceStatus> get deviceStatusUpdateStream => _deviceStatusUpdateController.stream;
 
-  /// เริ่มต้นระบบ Speech Recognition
+  /// Initializes the speech recognition system.
   Future<bool> initialize() async {
     if (_isInitialized) return true;
 
     try {
-      // ขอสิทธิ์ไมโครโฟน
-      final micPermission = await Permission.microphone.request();
-      if (micPermission != PermissionStatus.granted) {
-        print('ไมโครโฟนไม่ได้รับอนุญาต');
-        return false;
+      // Request microphone permission first (skip on web; browser handles via prompt)
+      if (!kIsWeb) {
+        final micPermission = await Permission.microphone.request();
+        if (micPermission != PermissionStatus.granted) {
+          print('Microphone permission not granted');
+          return false;
+        }
+      } else {
+        print('Web platform detected: skipping Permission.microphone.request().');
       }
 
-      // เริ่มต้น Speech Recognition
+      // Initialize speech recognition
       final available = await _speechToText.initialize(
-        onError: (error) {
-          print('Speech recognition error: $error');
-          _listeningController.add(false);
-          _isListening = false;
-        },
-        onStatus: (status) {
-          print('Speech recognition status: $status');
-          if (status == 'done' || status == 'notListening') {
-            _listeningController.add(false);
-            _isListening = false;
-          }
-        },
+        onStatus: _onStatusChanged,
+        onError: _onError,
         debugLogging: true,
       );
-
-             if (available) {
-         _isInitialized = true;
-         print('Speech recognition initialized successfully');
-         notifyListeners();
-         return true;
-       } else {
-         print('Speech recognition not available');
-         return false;
-       }
+      
+      _isInitialized = available;
+      _isAvailable = available;
+      _hasPermission = await _speechToText.hasPermission;
+      if (available) {
+        print('Speech recognition initialized successfully.');
+        print('SpeechToText hasPermission: '+ _hasPermission.toString());
+        try {
+          final locales = await _speechToText.locales();
+          print('SpeechToText available locales ('+locales.length.toString()+'): '+locales.map((l) => l.localeId).take(10).join(', ')+ (locales.length > 10 ? ', ...' : ''));
+        } catch (e) {
+          print('Error fetching locales: $e');
+        }
+        try {
+          final sysLocale = await _speechToText.systemLocale();
+          print('System locale: ${sysLocale?.localeId}');
+        } catch (e) {
+          print('Error fetching system locale: $e');
+        }
+      } else {
+        print('Speech recognition not available.');
+        return false;
+      }
+      return true;
     } catch (e) {
       print('Error initializing speech recognition: $e');
       return false;
     }
   }
 
-  /// เริ่มฟังคำสั่งเสียง
+  /// Starts listening for voice commands.
   Future<bool> startListening() async {
     if (!_isInitialized) {
       final initialized = await initialize();
@@ -91,52 +109,92 @@ class VoiceCommandService extends ChangeNotifier {
     if (_isListening) return true;
 
     try {
-             _isListening = true;
-       _listeningController.add(true);
-       notifyListeners();
+      // Resolve a supported locale: prefer th-TH, else system, else en-US
+      String? resolvedLocaleId;
+      try {
+        final locales = await _speechToText.locales();
+        final thLocales = locales.where((l) => l.localeId.toLowerCase() == 'th-th');
+        if (thLocales.isNotEmpty) {
+          resolvedLocaleId = thLocales.first.localeId;
+        } else {
+          final sys = await _speechToText.systemLocale();
+          resolvedLocaleId = sys?.localeId ?? (locales.isNotEmpty ? locales.first.localeId : null);
+        }
+      } catch (e) {
+        print('Locale resolution error: $e');
+      }
+      resolvedLocaleId ??= 'en-US';
 
-      await _speechToText.listen(
-        onResult: (result) {
-          if (result.finalResult) {
-            final transcription = result.recognizedWords;
-            if (transcription.isNotEmpty) {
-              _transcriptionController.add(transcription);
-              _processVoiceCommand(transcription);
-            }
-          }
-        },
-        listenFor: const Duration(seconds: 10),
-        pauseFor: const Duration(seconds: 3),
-        partialResults: true,
-        localeId: 'th_TH', // ภาษาไทย
-        cancelOnError: true,
-        listenMode: ListenMode.confirmation,
+      final success = await _speechToText.listen(
+        onResult: _onSpeechResult,
+        listenFor: const Duration(seconds: 20), // Listen longer
+        pauseFor: const Duration(seconds: 5), // More pause time
+        localeId: resolvedLocaleId,
       );
-
-      return true;
+      if (success) {
+        _isListening = true;
+        _listeningController.add(true);
+        notifyListeners();
+      }
+      if (!success) {
+        _hasPermission = await _speechToText.hasPermission;
+        _isAvailable = await _speechToText.isAvailable;
+        print('SpeechToText.listen returned false | hasPermission: '+_hasPermission.toString()+', isAvailable: '+_isAvailable.toString()+', lastError: '+(_lastError ?? 'none'));
+      }
+      return success;
     } catch (e) {
       print('Error starting speech recognition: $e');
-      _isListening = false;
-      _listeningController.add(false);
       return false;
     }
   }
 
-  /// หยุดฟังคำสั่งเสียง
+  /// Stops listening for voice commands.
   Future<void> stopListening() async {
     if (!_isListening) return;
 
     try {
-             await _speechToText.stop();
-       _isListening = false;
-       _listeningController.add(false);
-       notifyListeners();
+      await _speechToText.stop();
+      _isListening = false;
+      _listeningController.add(false);
+      notifyListeners();
     } catch (e) {
       print('Error stopping speech recognition: $e');
     }
   }
 
-  /// ประมวลผลคำสั่งเสียง
+  void _onStatusChanged(String status) {
+    print('Speech status changed: $status');
+    if (status == 'done' || status == 'notListening') {
+      if (_isListening) {
+        _isListening = false;
+        _listeningController.add(false);
+        notifyListeners();
+      }
+    }
+  }
+
+  void _onError(dynamic error) {
+    _lastError = error?.toString();
+    print('Speech recognition error: $error');
+    if (_isListening) {
+      _isListening = false;
+      _listeningController.add(false);
+      notifyListeners();
+    }
+  }
+
+  /// Callback for speech recognition results.
+  void _onSpeechResult(dynamic result) {
+    _lastRecognizedWords = result.recognizedWords;
+    _transcriptionController.add(_lastRecognizedWords);
+    
+    if (result.finalResult) {
+      print('Final result: $_lastRecognizedWords');
+      _processVoiceCommand(_lastRecognizedWords);
+    }
+  }
+
+  /// Processes the recognized voice command.
   Future<void> _processVoiceCommand(String voiceInput) async {
     // ป้องกันการประมวลผลซ้ำ
     if (_isProcessingCommand) {
@@ -577,7 +635,7 @@ class VoiceCommandService extends ChangeNotifier {
   }
 
   /// ตรวจสอบสถานะการฟัง
-  bool get isAvailable => _isInitialized && _speechToText.isAvailable;
+  bool get isAvailable => false;
 
   /// เล่นเสียงตอบกลับคำสั่งเสียง
   Future<void> _playVoiceResponse(VoiceCommand command) async {
@@ -609,7 +667,7 @@ class VoiceCommandService extends ChangeNotifier {
       
       if (responseText.isNotEmpty) {
         // ใช้ speakImmediate เพื่อพูดทันทีและรอให้เสร็จ
-        await _ttsService.speakImmediate(responseText);
+        await _ttsService.speak(responseText);
         print('Voice response played: $responseText');
         
         // รอให้การพูดเสร็จสิ้น
@@ -639,7 +697,7 @@ class VoiceCommandService extends ChangeNotifier {
 
   @override
   void dispose() {
-    _speechToText.cancel();
+    // no-op when speech plugin is disabled
     _listeningController.close();
     _transcriptionController.close();
     _commandResultController.close();

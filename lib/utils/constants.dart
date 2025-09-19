@@ -1,6 +1,9 @@
 class ApiConstants {
-  // Base URL
-  static const String baseUrl = 'http://34.87.180.232:8080';
+  // Base URL (override with --dart-define=API_BASE_URL=...)
+  static const String baseUrl = String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: 'http://34.87.180.232:8080',
+  );
   
   // API Endpoints
   static const String statusEndpoint = '/api/status';
@@ -23,13 +26,25 @@ class ApiConstants {
 }
 
 class MqttConstants {
-  // MQTT Broker
-  static const String brokerHost = 'broker.hivemq.com';
-  static const int brokerPort = 1883;
-  static const String clientId = 'flutter-home-001';
+  // MQTT Broker (override with --dart-define=MQTT_HOST / MQTT_PORT / MQTT_WS_URL / MQTT_CLIENT_ID)
+  static const String brokerHost = String.fromEnvironment(
+    'MQTT_HOST',
+    defaultValue: 'broker.hivemq.com',
+  );
+  static const int brokerPort = int.fromEnvironment(
+    'MQTT_PORT',
+    defaultValue: 1883,
+  );
+  static const String clientId = String.fromEnvironment(
+    'MQTT_CLIENT_ID',
+    defaultValue: 'flutter-home-001',
+  );
   
   // MQTT over WebSocket (for web browser)
-  static const String webSocketUrl = 'ws://broker.hivemq.com:8000/mqtt';
+  static const String webSocketUrl = String.fromEnvironment(
+    'MQTT_WS_URL',
+    defaultValue: 'ws://broker.hivemq.com:8000/mqtt',
+  );
   
   // MQTT Topics
   static const String sensorTopic = 'home/sensor';

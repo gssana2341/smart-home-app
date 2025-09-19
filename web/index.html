@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html>
+
 <head>
   <!--
     If you are serving your web app in a path other than the root, change the
@@ -18,7 +19,10 @@
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="A new Flutter project.">
+  <meta name="description" content="Smart Home IoT Control Application - Control your smart devices from anywhere">
+  <meta name="keywords" content="smart home, IoT, home automation, device control, sensors">
+  <meta name="author" content="Smart Home App">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
@@ -26,13 +30,31 @@
   <meta name="apple-mobile-web-app-title" content="smart_home_app">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
+  <!-- Android meta tags -->
+  <meta name="theme-color" content="#2196F3">
+  <meta name="mobile-web-app-capable" content="yes">
+
   <!-- Favicon -->
-  <link rel="icon" type="image/png" href="favicon.png"/>
+  <link rel="icon" type="image/png" href="favicon.png" />
 
   <title>smart_home_app</title>
   <link rel="manifest" href="manifest.json">
+
+  <script src="https://unpkg.com/speech-to-text-polyfill@0.0.1/dist/speech-to-text-polyfill.js"></script>
+
+  <!-- Web Speech API Support -->
+  <script>
+    // Check for Web Speech API support
+    if ('speechSynthesis' in window) {
+      console.log('Web Speech API is supported');
+    } else {
+      console.log('Web Speech API is not supported');
+    }
+  </script>
 </head>
+
 <body>
   <script src="flutter_bootstrap.js" async></script>
 </body>
+
 </html>

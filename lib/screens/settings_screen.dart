@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/api_service.dart';
 import '../services/mqtt_service.dart';
-import '../services/storage_service.dart';
+import '../services/storage_service_simple.dart';
 import '../utils/theme.dart';
 import '../utils/helpers.dart';
 import '../utils/constants.dart';
