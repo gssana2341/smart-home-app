@@ -34,10 +34,14 @@ class MqttService extends ChangeNotifier {
   MqttService() {
     try {
       _initializeMqttClient();
-      // Auto-connect เมื่อ initialize
-      Future.delayed(const Duration(seconds: 1), () {
-        connect();
-      });
+      // Auto-connect เมื่อ initialize (ยกเว้นบนเว็บ)
+      if (!kIsWeb) {
+        Future.delayed(const Duration(seconds: 1), () {
+          connect();
+        });
+      } else {
+        logger.info('Skip MQTT auto-connect on web', category: 'MQTT');
+      }
     } catch (e) {
       logger.error('MqttService initialization error', error: e, category: 'MQTT');
       _isConnected = false;
@@ -46,21 +50,23 @@ class MqttService extends ChangeNotifier {
   }
 
   void _initializeMqttClient() {
-    // Use MqttServerClient for all platforms
-    // Note: Web browsers may not support MQTT directly
+    if (kIsWeb) {
+      // For web platform, we'll skip MQTT initialization
+      // Web browsers don't support raw TCP connections
+      logger.info('Skipping MQTT initialization on web platform', category: 'MQTT');
+      print('MQTT: Skipping MQTT on web platform - using API only');
+      return;
+    }
+
+    // Use MqttServerClient for mobile platforms
     _client = MqttServerClient.withPort(
       MqttConstants.brokerHost,
       MqttConstants.clientId,
       MqttConstants.brokerPort,
     );
 
-    if (kIsWeb) {
-      logger.info('Using MQTT client for web platform (may not work)', category: 'MQTT');
-      print('MQTT: Using MQTT client for web platform (may not work)');
-    } else {
-      logger.info('Using MQTT TCP client for mobile platform', category: 'MQTT');
-      print('MQTT: Using TCP client for mobile platform');
-    }
+    logger.info('Using MQTT TCP client for mobile platform', category: 'MQTT');
+    print('MQTT: Using TCP client for mobile platform');
 
     _client!.logging(on: kDebugMode);
     _client!.onConnected = _onConnected;
@@ -76,8 +82,22 @@ class MqttService extends ChangeNotifier {
   // Connect to MQTT broker
   Future<bool> connect() async {
     try {
+      // Skip MQTT connection on web platform
+      if (kIsWeb) {
+        logger.info('MQTT connection skipped on web platform', category: 'MQTT');
+        _isConnected = false;
+        _lastError = 'MQTT not supported on web platform';
+        notifyListeners();
+        return false;
+      }
+
       if (_client == null) {
         _initializeMqttClient();
+      }
+
+      if (_client == null) {
+        logger.error('Failed to initialize MQTT client', category: 'MQTT');
+        return false;
       }
 
       if (_isConnected) {

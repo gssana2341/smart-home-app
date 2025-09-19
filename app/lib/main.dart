@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
+import 'package:flutter_web_plugins/url_strategy.dart'; // Import this
 import 'services/api_service.dart';
 import 'services/mqtt_service.dart';
-import 'services/storage_service.dart';
+import 'services/storage_service_simple.dart';
 import 'services/voice_command_service.dart';
 import 'services/tts_service.dart';
 import 'services/automation_service.dart';
+import 'services/network_service.dart';
 import 'screens/splash_screen.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/chat_screen.dart';
@@ -18,6 +20,7 @@ import 'utils/constants.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  usePathUrlStrategy(); // Add this line to configure URL strategy for web
   
   // ปิด DebugService logs ที่ไม่ต้องการ
   if (kDebugMode) {
@@ -84,18 +87,21 @@ class SmartHomeApp extends StatelessWidget {
         ChangeNotifierProvider.value(
           value: StorageService.instance,
         ),
-                 ChangeNotifierProvider(
-           create: (_) => VoiceCommandService(),
-           lazy: false,
-         ),
-         ChangeNotifierProvider<TtsService>(
-           create: (_) => TtsService.instance,
-           lazy: false,
-         ),
-         ChangeNotifierProvider(
-           create: (_) => AutomationService(),
-           lazy: false,
-         ),
+        ChangeNotifierProvider(
+          create: (_) => VoiceCommandService(),
+          lazy: false,
+        ),
+        ChangeNotifierProvider<TtsService>(
+          create: (_) => TtsService.instance,
+          lazy: false,
+        ),
+        ChangeNotifierProvider(
+          create: (_) => AutomationService(),
+          lazy: false,
+        ),
+        ChangeNotifierProvider.value(
+          value: NetworkService(),
+        ),
       ],
       child: Consumer<StorageService>(
         builder: (context, storage, child) {
@@ -209,9 +215,16 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
     setState(() => _isConnecting = true);
     
     try {
-      // Initialize MQTT connection
-      final mqttService = Provider.of<MqttService>(context, listen: false);
-      await mqttService.connect();
+      // Initialize TTS Service for web
+      if (kIsWeb) {
+        TtsService.instance.initialize();
+      }
+
+      // Initialize MQTT connection (avoid auto-connect on web)
+      if (!kIsWeb) {
+        final mqttService = Provider.of<MqttService>(context, listen: false);
+        await mqttService.connect();
+      }
       
       // Test API connection
       final apiService = Provider.of<ApiService>(context, listen: false);
@@ -235,9 +248,11 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
 
   Future<void> _reconnectServices() async {
     try {
-      final mqttService = Provider.of<MqttService>(context, listen: false);
-      if (!mqttService.isConnected) {
-        await mqttService.connect();
+      if (!kIsWeb) {
+        final mqttService = Provider.of<MqttService>(context, listen: false);
+        if (!mqttService.isConnected) {
+          await mqttService.connect();
+        }
       }
     } catch (e) {
       // Silent fail for reconnection
@@ -250,8 +265,10 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
 
   void _disconnectServices() {
     try {
-      final mqttService = Provider.of<MqttService>(context, listen: false);
-      mqttService.disconnect();
+      if (!kIsWeb) {
+        final mqttService = Provider.of<MqttService>(context, listen: false);
+        mqttService.disconnect();
+      }
     } catch (e) {
       // Silent fail for disconnection
     }

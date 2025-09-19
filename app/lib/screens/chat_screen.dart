@@ -4,7 +4,7 @@ import 'package:uuid/uuid.dart';
 import '../models/chat_message.dart';
 import '../models/device_status.dart';
 import '../models/voice_command.dart';
-import '../services/storage_service.dart';
+import '../services/storage_service_simple.dart';
 import '../services/ai_chat_service.dart';
 import '../services/tts_service.dart';
 import '../services/voice_command_service.dart';
@@ -189,7 +189,7 @@ class _LogScreenState extends State<LogScreen>
          message,
          _logMessages,
          _deviceStatus,
-         autoPlay: _ttsService.isInitialized, // เล่นเสียงถ้า TTS เปิดอยู่
+         autoPlay: _ttsService.isSpeaking, // เล่นเสียงถ้า TTS เปิดอยู่
          context: context, // ส่ง context สำหรับการควบคุมอุปกรณ์
        );
 
@@ -239,15 +239,14 @@ class _LogScreenState extends State<LogScreen>
 
   /// เปิด/ปิด TTS
   Future<void> _toggleTts() async {
-    if (_ttsService.isInitialized) {
+    // The new TTS service is always "initialized" on web, so this button
+    // can be repurposed to stop any ongoing speech.
+    if (_ttsService.isSpeaking) {
       await _ttsService.stop();
-      // ปิด TTS โดยการ dispose และสร้างใหม่
-      _ttsService.dispose();
-      _ttsService = TtsService.instance;
     } else {
-      await _ttsService.initialize();
+      // Or maybe to test it, if needed.
+      await _ttsService.speak('ระบบเสียงพร้อมทำงาน');
     }
-    setState(() {}); // อัพเดท UI
   }
 
   /// เล่นเสียงข้อความ
@@ -320,6 +319,17 @@ class _LogScreenState extends State<LogScreen>
     }
   }
 
+  void _setupListeners() {
+    // TTS listener
+    _ttsService.addListener(() {
+      if (mounted) {
+        setState(() {
+          // Update UI based on TTS speaking state
+        });
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     super.build(context);
@@ -333,10 +343,10 @@ class _LogScreenState extends State<LogScreen>
            IconButton(
              onPressed: () => _toggleTts(),
              icon: Icon(
-               _ttsService.isInitialized ? Icons.volume_up : Icons.volume_off,
-               color: _ttsService.isInitialized ? AppTheme.successColor : Colors.grey,
+               _ttsService.isSpeaking ? Icons.volume_up : Icons.volume_off,
+               color: _ttsService.isSpeaking ? AppTheme.successColor : Colors.grey,
              ),
-             tooltip: _ttsService.isInitialized ? 'ปิดเสียง AI' : 'เปิดเสียง AI',
+             tooltip: _ttsService.isSpeaking ? 'หยุดเสียง AI' : 'เล่นเสียง AI',
            ),
            // Clear Log Button
            IconButton(
@@ -419,12 +429,12 @@ class _LogScreenState extends State<LogScreen>
            Container(
              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
              decoration: BoxDecoration(
-               color: _ttsService.isInitialized 
+               color: _ttsService.isSpeaking 
                    ? AppTheme.successColor.withOpacity(0.1)
                    : Colors.grey.withOpacity(0.1),
                borderRadius: BorderRadius.circular(20),
                border: Border.all(
-                 color: _ttsService.isInitialized 
+                 color: _ttsService.isSpeaking 
                      ? AppTheme.successColor
                      : Colors.grey,
                  width: 1,
@@ -434,19 +444,19 @@ class _LogScreenState extends State<LogScreen>
                mainAxisSize: MainAxisSize.min,
                children: [
                  Icon(
-                   _ttsService.isInitialized ? Icons.volume_up : Icons.volume_off,
+                   _ttsService.isSpeaking ? Icons.volume_up : Icons.volume_off,
                    size: 16,
-                   color: _ttsService.isInitialized 
+                   color: _ttsService.isSpeaking 
                        ? AppTheme.successColor
                        : Colors.grey,
                  ),
                  const SizedBox(width: 8),
                  Text(
-                   _ttsService.isInitialized 
-                       ? 'เสียง AI เปิดใช้งาน'
-                       : 'เสียง AI ปิดใช้งาน',
+                   _ttsService.isSpeaking 
+                       ? 'เสียง AI เล่นอยู่'
+                       : 'เสียง AI หยุด',
                    style: theme.textTheme.bodySmall?.copyWith(
-                     color: _ttsService.isInitialized 
+                     color: _ttsService.isSpeaking 
                          ? AppTheme.successColor
                          : Colors.grey,
                      fontWeight: FontWeight.w500,

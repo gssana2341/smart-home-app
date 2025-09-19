@@ -7,24 +7,48 @@ import '../models/sensor_data.dart';
 import '../models/chat_message.dart';
 import '../utils/constants.dart';
 import '../utils/log_manager.dart';
+import 'network_service.dart';
 
 class ApiService extends ChangeNotifier {
   late final Dio _dio;
   bool _isConnected = false;
   String? _lastError;
+  final NetworkService _networkService = NetworkService();
   
   // Getters
   bool get isConnected => _isConnected;
   String? get lastError => _lastError;
+  NetworkService get networkService => _networkService;
 
   ApiService() {
     try {
       _initializeDio();
+      _initializeNetworkService();
     } catch (e) {
       logger.error('ApiService initialization error', error: e, category: 'API');
       _isConnected = false;
       _lastError = e.toString();
     }
+  }
+
+  Future<void> _initializeNetworkService() async {
+    try {
+      await _networkService.initialize();
+      // Listen to network changes and update timeouts accordingly
+      _networkService.addListener(_onNetworkChanged);
+    } catch (e) {
+      logger.error('Failed to initialize network service', error: e, category: 'API');
+    }
+  }
+
+  void _onNetworkChanged() {
+    // Update Dio timeouts based on network type
+    final timeout = _networkService.getRecommendedTimeout();
+    _dio.options.connectTimeout = timeout;
+    _dio.options.receiveTimeout = Duration(seconds: timeout.inSeconds * 2);
+    _dio.options.sendTimeout = timeout;
+    
+    logger.info('Updated API timeouts based on network: ${_networkService.getNetworkStatusMessage()}', category: 'API');
   }
 
   void _initializeDio() {
@@ -36,6 +60,14 @@ class ApiService extends ChangeNotifier {
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
+        'User-Agent': 'SmartHomeApp/1.0.0',
+      },
+      // เพิ่มการรองรับการเชื่อมต่อที่ไม่เสถียร
+      followRedirects: true,
+      maxRedirects: 3,
+      validateStatus: (status) {
+        // ยอมรับ status codes 200-299 และ 400-499
+        return status != null && (status < 300 || (status >= 400 && status < 500));
       },
     ));
 
@@ -129,18 +161,21 @@ class ApiService extends ChangeNotifier {
   Future<bool> controlDevice({
     required String command,
     Map<String, dynamic>? parameters,
-    int maxRetries = 3,
-    Duration retryDelay = const Duration(seconds: 2),
+    int? maxRetries,
+    Duration? retryDelay,
   }) async {
+    // Use network-appropriate retry settings
+    final retryCount = maxRetries ?? _networkService.getRecommendedRetryCount();
+    final delay = retryDelay ?? const Duration(seconds: 2);
     int attempts = 0;
     Exception? lastException;
     
-    while (attempts < maxRetries) {
+    while (attempts < retryCount) {
       attempts++;
       
       try {
         if (kDebugMode) {
-          print('API: Attempt $attempts/$maxRetries for command: $command');
+          print('API: Attempt $attempts/$retryCount for command: $command');
         }
         
         final data = {
@@ -188,11 +223,11 @@ class ApiService extends ChangeNotifier {
         _handleError(e);
         
         // Wait before retrying (except on last attempt)
-        if (attempts < maxRetries) {
+        if (attempts < retryCount) {
           if (kDebugMode) {
-            print('API: Waiting ${retryDelay.inSeconds}s before retry...');
+            print('API: Waiting ${delay.inSeconds}s before retry...');
           }
-          await Future.delayed(retryDelay);
+          await Future.delayed(delay);
         }
         
       } catch (e) {
@@ -202,14 +237,14 @@ class ApiService extends ChangeNotifier {
         }
         
         // Wait before retrying (except on last attempt)
-        if (attempts < maxRetries) {
-          await Future.delayed(retryDelay);
+        if (attempts < retryCount) {
+          await Future.delayed(delay);
         }
       }
     }
     
     // All attempts failed
-    _lastError = 'All $maxRetries attempts failed. Last error: ${lastException?.toString() ?? "Unknown error"}';
+    _lastError = 'All $retryCount attempts failed. Last error: ${lastException?.toString() ?? "Unknown error"}';
     _isConnected = false;
     notifyListeners();
     

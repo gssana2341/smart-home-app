@@ -8,7 +8,7 @@ import '../models/automation_condition.dart';
 import '../models/automation_action.dart';
 import '../models/device_status.dart';
 import '../models/sensor_data.dart';
-import 'storage_service.dart';
+import 'storage_service_simple.dart';
 import 'mqtt_service.dart';
 import 'api_service.dart';
 import '../utils/log_manager.dart';

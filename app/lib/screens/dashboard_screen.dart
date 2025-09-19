@@ -10,7 +10,7 @@ import '../models/automation_condition.dart';
 import '../models/automation_action.dart';
 import '../services/api_service.dart';
 import '../services/mqtt_service.dart';
-import '../services/storage_service.dart';
+import '../services/storage_service_simple.dart';
 import '../services/voice_command_service.dart';
 import '../services/tts_service.dart';
 import '../services/automation_service.dart';
@@ -1544,11 +1544,16 @@ class _HomeScreenState extends State<HomeScreen>
       // เริ่มฟัง
       final success = await voiceCommandService.startListening();
       if (!success) {
+        final perm = voiceCommandService.hasMicPermission;
+        final avail = voiceCommandService.isSpeechAvailable;
+        final err = voiceCommandService.lastError;
+        final details = 'perm=' + perm.toString() + ', available=' + avail.toString() + (err != null ? ', error=' + err : '');
         AppHelpers.showSnackBar(
           context, 
-          '❌ ไม่สามารถเริ่มฟังคำสั่งเสียงได้ กรุณาตรวจสอบสิทธิ์ไมโครโฟน',
+          '❌ ไม่สามารถเริ่มฟังคำสั่งเสียงได้ (รายละเอียด: '+details+')',
           isError: true,
         );
+        print('Voice start failed -> '+details);
       }
     }
   }
@@ -1585,12 +1590,12 @@ class _HomeScreenState extends State<HomeScreen>
       final ttsService = Provider.of<TtsService>(context, listen: false);
       print('Dashboard: Calling TTS speak method...');
       
-      final result = await ttsService.speak('สวัสดีครับ นี่คือการทดสอบระบบเสียง');
-      print('Dashboard: TTS speak result: $result');
+      await ttsService.speak('สวัสดีครับ นี่คือการทดสอบระบบเสียง');
+      print('Dashboard: TTS speak triggered');
       
       AppHelpers.showSnackBar(
         context, 
-        '🔊 กำลังทดสอบเสียง... (Result: $result)',
+        '🔊 กำลังทดสอบเสียง...',
         isError: false,
       );
     } catch (e) {
