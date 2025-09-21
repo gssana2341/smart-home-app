@@ -1,6 +1,6 @@
 class ApiConstants {
   // Base URL
-  static const String baseUrl = 'http://34.87.180.232:8080';
+  static const String baseUrl = 'http://localhost:8080';
   
   // API Endpoints
   static const String statusEndpoint = '/api/status';
@@ -8,6 +8,8 @@ class ApiConstants {
   static const String controlEndpoint = '/api/control';
   static const String sensorsEndpoint = '/api/sensors';
   static const String historyEndpoint = '/api/history';
+  // New: TTS proxy endpoint (server should return audio/mpeg bytes)
+  static const String ttsEndpoint = '/api/tts';
   
   // Full URLs
   static const String statusUrl = '$baseUrl$statusEndpoint';
@@ -15,6 +17,7 @@ class ApiConstants {
   static const String controlUrl = '$baseUrl$controlEndpoint';
   static const String sensorsUrl = '$baseUrl$sensorsEndpoint';
   static const String historyUrl = '$baseUrl$historyEndpoint';
+  static const String ttsUrl = '$baseUrl$ttsEndpoint';
   
   // Request timeouts
   static const Duration connectTimeout = Duration(seconds: 10);

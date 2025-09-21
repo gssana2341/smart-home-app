@@ -4,6 +4,8 @@ import '../models/voice_command.dart';
 import '../models/device_status.dart';
 import '../utils/constants.dart';
 import '../config/api_keys.dart';
+import 'package:flutter/foundation.dart';
+import 'api_service.dart';
 
 class AiService {
   static const String _baseUrl = 'https://api.openai.com/v1/chat/completions';
@@ -313,6 +315,21 @@ class AiService {
   /// ประมวลผลคำถามทั่วไปด้วย GPT-4o mini
   Future<VoiceCommand> _processGeneralQuestion(String voiceInput, DeviceStatus? deviceStatus) async {
     try {
+      // สำหรับเว็บ: เรียกผ่าน Backend Proxy เพื่อความปลอดภัยของ API key
+      if (kIsWeb) {
+        final api = ApiService();
+        final chat = await api.sendChatMessage(voiceInput);
+        final reply = chat?.response ?? 'ขออภัยครับ ไม่สามารถตอบได้ในขณะนี้';
+        return VoiceCommand(
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          command: voiceInput,
+          result: reply,
+          timestamp: DateTime.now(),
+          isSuccess: chat != null,
+          errorMessage: chat == null ? 'ไม่มีการตอบกลับจากเซิร์ฟเวอร์' : null,
+        );
+      }
+
       final headers = {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $_apiKey',
@@ -447,6 +464,21 @@ $context
 
   /// ใช้ OpenAI API (ต้องมี API key)
   Future<VoiceCommand> _processWithOpenAI(String voiceInput, DeviceStatus? deviceStatus) async {
+    // สำหรับเว็บ: เรียกผ่าน Backend Proxy เพื่อความปลอดภัยของ API key
+    if (kIsWeb) {
+      final api = ApiService();
+      final chat = await api.sendChatMessage(voiceInput);
+      final reply = chat?.response ?? 'ขออภัยครับ ไม่สามารถตอบได้ในขณะนี้';
+      return VoiceCommand(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        command: voiceInput,
+        result: reply,
+        timestamp: DateTime.now(),
+        isSuccess: chat != null,
+        errorMessage: chat == null ? 'ไม่มีการตอบกลับจากเซิร์ฟเวอร์' : null,
+      );
+    }
+
     final headers = {
       'Content-Type': 'application/json',
       'Authorization': 'Bearer $_apiKey',

@@ -234,10 +234,14 @@ class ApiService extends ChangeNotifier {
       );
       
       if (response.statusCode == 200 && response.data != null) {
+        final data = response.data;
+        final replyText = (data is Map<String, dynamic>)
+            ? (data['reply'] ?? data['response'] ?? '')
+            : '';
         return ChatMessage.fromJson({
-          'id': response.data['id'] ?? DateTime.now().millisecondsSinceEpoch.toString(),
+          'id': data['id'] ?? DateTime.now().millisecondsSinceEpoch.toString(),
           'message': message,
-          'reply': response.data['reply'] ?? '',
+          'response': replyText,
           'timestamp': DateTime.now().toIso8601String(),
           'isUser': false,
         });
