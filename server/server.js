@@ -72,6 +72,7 @@ app.use(
 );
 app.use(express.json({ limit: "2mb" }));
 app.use(express.static("public"));
+app.use(express.static("../app/build/web"));
 
 // Logging middleware
 app.use((req, res, next) => {
@@ -331,17 +332,6 @@ function sendDeviceCommand(device, action) {
 }
 
 // ===== REST API ENDPOINTS =====
-
-// Health check
-app.get("/", (req, res) => {
-  res.json({
-    status: "online",
-    service: "Smart Home Server",
-    version: "1.0.0",
-    timestamp: new Date().toISOString(),
-  });
-});
-
 // Get device status
 app.get("/api/status", (req, res) => {
   res.json({
@@ -524,6 +514,23 @@ app.get("/api/history", (req, res) => {
       }
     }
   );
+});
+
+// ===== SERVE FLUTTER WEB APP =====
+// Catch-all route to serve Flutter web app for non-API routes
+app.get("*", (req, res) => {
+  // Skip API routes
+  if (req.path.startsWith("/api/")) {
+    return res.status(404).json({ error: "API endpoint not found" });
+  }
+
+  // Serve Flutter web app
+  res.sendFile("index.html", { root: "../app/build/web" }, (err) => {
+    if (err) {
+      console.error("Error serving Flutter web app:", err);
+      res.status(500).json({ error: "Failed to serve web app" });
+    }
+  });
 });
 
 // ===== DEVICE MONITORING =====

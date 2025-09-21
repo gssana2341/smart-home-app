@@ -11,6 +11,7 @@ class ApiConstants {
   static const String controlEndpoint = '/api/control';
   static const String sensorsEndpoint = '/api/sensors';
   static const String historyEndpoint = '/api/history';
+  static const String ttsEndpoint = '/api/tts';
   
   // Full URLs
   static const String statusUrl = '$baseUrl$statusEndpoint';
@@ -18,6 +19,7 @@ class ApiConstants {
   static const String controlUrl = '$baseUrl$controlEndpoint';
   static const String sensorsUrl = '$baseUrl$sensorsEndpoint';
   static const String historyUrl = '$baseUrl$historyEndpoint';
+  static const String ttsUrl = '$baseUrl$ttsEndpoint';
   
   // Request timeouts
   static const Duration connectTimeout = Duration(seconds: 10);

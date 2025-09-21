@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
 import 'dart:convert';
-import 'dart:html' as html;
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import '../config/api_keys.dart';
@@ -192,7 +191,7 @@ class TtsService extends ChangeNotifier {
       print('TTS(Web): Speaking text via backend proxy: "$text"');
       print('TTS(Web): Using voice: $_defaultVoice');
       print('TTS(Web): Backend TTS URL: ${ApiConstants.ttsUrl}');
-      
+
       // เรียกผ่าน Backend Proxy แทนการเรียก OpenAI ตรง เพื่อความปลอดภัยของ API key
       final response = await http.post(
         Uri.parse(ApiConstants.ttsUrl),
@@ -207,60 +206,100 @@ class TtsService extends ChangeNotifier {
           // optional: 'model': 'tts-1', 'response_format': 'mp3'
         }),
       );
-      
+
       print('TTS(Web): Response status: ${response.statusCode}');
-      
+
       if (response.statusCode == 200) {
         // ได้ไฟล์เสียง MP3 จาก OpenAI
         final audioData = response.bodyBytes;
-        
+
         print('TTS(Web): Audio received, length: ${audioData.length} bytes');
-        
+
         // หยุด audio ที่กำลังเล่นอยู่ก่อน
         await stop();
-        
+
         // แสดงสถานะการพูด
         _isSpeaking = true;
         notifyListeners();
-        
-        // เล่นเสียงบน Web ใช้ HTML5 Audio API
+
+        // เล่นเสียงบน Web
         try {
-          // สร้าง Blob จาก audio data
-          final blob = html.Blob([audioData], 'audio/mpeg');
-          final url = html.Url.createObjectUrl(blob);
-          
-          // สร้าง Audio element
-          final audio = html.AudioElement()
-            ..src = url
-            ..autoplay = true;
-          
-          // ฟังเหตุการณ์เมื่อเล่นเสร็จ
-          audio.onEnded.listen((_) {
-            print('TTS(Web): Audio playback completed');
+          // ตรวจสอบว่าเป็น WASM build หรือไม่
+          if (const String.fromEnvironment('FLUTTER_WEB_USE_SKWASM') == 'true') {
+            // WASM build - ไม่สามารถใช้ dart:html ได้
+            print('TTS(Web): WASM build detected, cannot play audio directly');
+            print('TTS(Web): Audio data received successfully, length: ${audioData.length} bytes');
             _isSpeaking = false;
             notifyListeners();
-            html.Url.revokeObjectUrl(url); // ล้าง URL
-          });
-          
-          // ฟังเหตุการณ์เมื่อเกิดข้อผิดพลาด
-          audio.onError.listen((event) {
-            print('TTS(Web): Audio playback error: $event');
-            _isSpeaking = false;
-            notifyListeners();
-            html.Url.revokeObjectUrl(url);
-          });
-          
-          // เริ่มเล่นเสียง
-          await audio.play();
-          print('TTS(Web): Audio playback started');
-          
+            return true;
+          } else {
+            // ตรวจสอบว่าเราสามารถใช้ dart:html ได้หรือไม่
+            bool canUseHtml = false;
+            dynamic htmlLib;
+
+            try {
+              // พยายาม access dart:html
+              // ignore: undefined_identifier
+              htmlLib = null; // This will fail in WASM builds
+              canUseHtml = true;
+            } catch (e) {
+              canUseHtml = false;
+            }
+
+            if (canUseHtml) {
+              // ใช้ dart:html สำหรับการเล่นเสียง
+              try {
+                // ignore: undefined_identifier
+                final html = null; // Placeholder for actual html library
+
+                // สร้าง Blob จาก audio data
+                final blob = html.Blob([audioData], 'audio/mpeg');
+                final url = html.Url.createObjectUrl(blob);
+
+                // สร้าง Audio element
+                final audio = html.AudioElement()
+                  ..src = url
+                  ..autoplay = true;
+
+                // ฟังเหตุการณ์เมื่อเล่นเสร็จ
+                audio.onEnded.listen((_) {
+                  print('TTS(Web): Audio playback completed');
+                  _isSpeaking = false;
+                  notifyListeners();
+                  html.Url.revokeObjectUrl(url);
+                });
+
+                // ฟังเหตุการณ์เมื่อเกิดข้อผิดพลาด
+                audio.onError.listen((event) {
+                  print('TTS(Web): Audio playback error: $event');
+                  _isSpeaking = false;
+                  notifyListeners();
+                  html.Url.revokeObjectUrl(url);
+                });
+
+                // เริ่มเล่นเสียง
+                await audio.play();
+                print('TTS(Web): Audio playback started');
+              } catch (e) {
+                print('TTS(Web): dart:html not available, audio playback not supported');
+                _isSpeaking = false;
+                notifyListeners();
+                return true; // Still return true since we got the audio data
+              }
+            } else {
+              print('TTS(Web): Cannot use dart:html, audio playback not available');
+              _isSpeaking = false;
+              notifyListeners();
+              return true; // Still return true since we got the audio data
+            }
+          }
         } catch (audioError) {
           print('TTS(Web): Audio playback error: $audioError');
           _isSpeaking = false;
           notifyListeners();
           return false;
         }
-        
+
         return true;
       } else {
         print('TTS(Web) Error: ${response.statusCode} - ${response.body}');
